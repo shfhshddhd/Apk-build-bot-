@@ -17,7 +17,7 @@ Never commit bot tokens or put them directly in source code.
 
 ## Start the bot
 
-1. Add the two repository secrets.
+1. Add all four repository secrets listed above.
 2. Open **Actions → APK Build Bot → Run workflow**.
 3. After the job starts, send `/start` to your Telegram bot.
 4. Send an Android Gradle project ZIP.
