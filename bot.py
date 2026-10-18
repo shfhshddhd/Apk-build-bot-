@@ -77,11 +77,11 @@ def build_apk(root: Path, cancel: threading.Event):
         "docker", "run", "--rm", "--network=bridge",
         "--memory=4g", "--memory-swap=4g", "--cpus=2",
         "--pids-limit=256", "--security-opt=no-new-privileges",
-        "--tmpfs=/tmp:rw,nosuid,size=1g",
+        "--tmpfs=/tmp:rw,exec,nosuid,size=1g",
         "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle",
         "-v", f"{root.resolve()}:/work", "-w", "/work",
         DOCKER_IMAGE, "bash", "-lc",
-        "set -e; if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
+        "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
         + "test -s gradle/wrapper/gradle-wrapper.properties || "
         + "{ echo 'Gradle wrapper properties missing: gradle/wrapper/gradle-wrapper.properties'; exit 1; }; "
         + "mkdir -p gradle/wrapper; "
