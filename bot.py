@@ -17,11 +17,10 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
-MAX_ZIP_BYTES = 20 * 1024 * 1024
-MAX_UNZIPPED_BYTES = 250 * 1024 * 1024
-MAX_ZIP_FILES = 5000
-MAX_APK_BYTES = 45 * 1024 * 1024
-BUILD_TIMEOUT_SECONDS = 600
+# No fixed ZIP/APK size cap. Actual limits depend on Telegram and runner resources.
+MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES", str(2 * 1024 * 1024 * 1024)))
+MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES", "100000"))
+BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "1800"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 JOBS = {}
@@ -129,8 +128,6 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Aapki ek build pehle se chal rahi hai."); return
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
-    if doc.file_size and doc.file_size > MAX_ZIP_BYTES:
-        await update.message.reply_text("ZIP 20 MB se chhoti honi chahiye."); return
     job = {"status": "ZIP download ho rahi hai…", "cancel": threading.Event()}
     JOBS[uid] = job
     await update.message.reply_text("ZIP mil gayi. Build shuru kar raha hoon…", reply_markup=keyboard())
@@ -144,7 +141,6 @@ async def run_build(update, context, doc, job):
             job["status"] = "ZIP download ho rahi hai…"
             tgfile = await context.bot.get_file(doc.file_id)
             await tgfile.download_to_drive(custom_path=str(zip_path))
-            if zip_path.stat().st_size > MAX_ZIP_BYTES: raise ValueError("ZIP 20 MB se badi hai.")
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
             job["status"] = "ZIP check/extract ho rahi hai…"
             await asyncio.to_thread(safe_extract, zip_path, src)
@@ -152,7 +148,6 @@ async def run_build(update, context, doc, job):
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
             job["status"] = "Android APK build ho rahi hai…"
             apk = await asyncio.to_thread(build_apk, root, job["cancel"])
-            if apk.stat().st_size > MAX_APK_BYTES: raise RuntimeError("APK 45 MB se badi hai.")
             job["status"] = "APK bheji ja rahi hai…"
             with apk.open("rb") as f:
                 await context.bot.send_document(chat_id=chat_id, document=f, filename=apk.name, caption="Debug APK ready hai.")
@@ -175,7 +170,12 @@ async def errors(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not ALLOWED_USER_IDS:
         raise RuntimeError("ALLOWED_USER_IDS secret set karein.")
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (Application.builder()
+           .token(BOT_TOKEN)
+           .base_url(os.environ.get("TELEGRAM_API_BASE_URL", "http://127.0.0.1:8081/bot"))
+           .base_file_url(os.environ.get("TELEGRAM_FILE_BASE_URL", "http://127.0.0.1:8081/file/bot"))
+           .local_mode(os.environ.get("TELEGRAM_LOCAL_MODE", "true").lower() == "true")
+           .build())
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.Document.ALL, receive_zip))
