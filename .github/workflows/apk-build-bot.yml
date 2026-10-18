@@ -55,4 +55,7 @@ jobs:
           TELEGRAM_LOCAL_MODE: "true"
           TELEGRAM_API_BASE_URL: http://127.0.0.1:8081/bot
           TELEGRAM_FILE_BASE_URL: http://127.0.0.1:8081/file/bot
+          MAX_UNZIPPED_BYTES: ${{ vars.MAX_UNZIPPED_BYTES }}
+          MAX_ZIP_FILES: ${{ vars.MAX_ZIP_FILES }}
+          BUILD_TIMEOUT_SECONDS: ${{ vars.BUILD_TIMEOUT_SECONDS }}
         run: python bot.py
