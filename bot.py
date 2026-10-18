@@ -73,27 +73,42 @@ def find_root(folder: Path):
     raise ValueError("Android Gradle project nahi mila. ZIP mein gradlew, settings.gradle aur app/build.gradle hone chahiye.")
 
 def build_apk(root: Path, cancel: threading.Event):
-    wrapper = root / "gradlew"
-    # ZIP extraction creates files without executable bits. Set all execute bits so the\n    # wrapper remains executable inside the Docker bind mount even with a different UID.\n    cmd = ["docker", "run", "--rm", "--network=bridge", "--memory=4g", "--memory-swap=4g", "--cpus=2", "--pids-limit=256", "--security-opt=no-new-privileges", "--cap-drop=ALL", "--tmpfs=/tmp:rw,nosuid,size=1g", "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle", "-v", f"{root.resolve()}:/work", "-w", "/work", DOCKER_IMAGE, "bash", "-lc", "bash ./gradlew --no-daemon assembleDebug"]
+    cmd = [
+        "docker", "run", "--rm", "--network=bridge",
+        "--memory=4g", "--memory-swap=4g", "--cpus=2",
+        "--pids-limit=256", "--security-opt=no-new-privileges",
+        "--cap-drop=ALL", "--tmpfs=/tmp:rw,nosuid,size=1g",
+        "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle",
+        "-v", f"{root.resolve()}:/work", "-w", "/work",
+        DOCKER_IMAGE, "bash", "-lc",
+        "bash ./gradlew --no-daemon assembleDebug",
+    ]
     log_path = root.parent / "gradle-build.log"
     try:
         with log_path.open("w", encoding="utf-8", errors="replace") as f:
             proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
-            start = time.monotonic()
+            start_time = time.monotonic()
             while proc.poll() is None:
-                if cancel.is_set() or time.monotonic() - start > BUILD_TIMEOUT_SECONDS:
+                if cancel.is_set() or time.monotonic() - start_time > BUILD_TIMEOUT_SECONDS:
                     proc.terminate()
-                    try: proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired: proc.kill(); proc.wait()
-                    if cancel.is_set(): raise RuntimeError("Build cancel kar di gayi.")
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    if cancel.is_set():
+                        raise RuntimeError("Build cancel kar di gayi.")
                     raise RuntimeError("Build 10 minute ki time limit se zyada chali.")
-                time.sleep(1)
             if proc.returncode:
-                raise RuntimeError("Gradle build fail hui. Log ka aakhri hissa:\n" + log_path.read_text(errors="replace")[-2500:])
+                raise RuntimeError(
+                    "Gradle build fail hui. Log ka aakhri hissa:\\n"
+                    + log_path.read_text(errors="replace")[-2500:]
+                )
     except FileNotFoundError as e:
         raise RuntimeError("Docker command nahi mila. GitHub Actions runner par Docker check karein.") from e
     apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
-    if not apks: raise RuntimeError("Build ke baad debug APK nahi mili.")
+    if not apks:
+        raise RuntimeError("Build ke baad debug APK nahi mili.")
     apk = max(apks, key=lambda p: p.stat().st_mtime)
     if apk.stat().st_size > MAX_APK_BYTES:
         raise RuntimeError("APK 45 MB se badi hai.")
