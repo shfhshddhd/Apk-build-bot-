@@ -17,10 +17,11 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
-# No fixed ZIP/APK size cap. Actual limits depend on Telegram and runner resources.
-MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES") or str(2 * 1024 * 1024 * 1024))
-MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES") or "100000")
-BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS") or "1800")
+MAX_ZIP_BYTES = 20 * 1024 * 1024
+MAX_UNZIPPED_BYTES = 250 * 1024 * 1024
+MAX_ZIP_FILES = 5000
+MAX_APK_BYTES = 45 * 1024 * 1024
+BUILD_TIMEOUT_SECONDS = 600
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 JOBS = {}
@@ -53,7 +54,7 @@ def safe_extract(zip_path: Path, dest: Path):
                 raise ValueError("ZIP mein symlink allowed nahi hai.")
             total += entry.file_size
             if total > MAX_UNZIPPED_BYTES:
-                raise ValueError(f"Extracted project {MAX_UNZIPPED_BYTES // (1024 * 1024)} MB safety limit se badi hai. MAX_UNZIPPED_BYTES badhane ke liye Actions variable set karein, agar runner mein disk space ho.")
+                raise ValueError("Extracted ZIP 250 MB se badi hai.")
             target = dest.joinpath(*pp.parts)
             if entry.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
@@ -94,7 +95,10 @@ def build_apk(root: Path, cancel: threading.Event):
         raise RuntimeError("Docker command nahi mila. GitHub Actions runner par Docker check karein.") from e
     apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     if not apks: raise RuntimeError("Build ke baad debug APK nahi mili.")
-    return max(apks, key=lambda p: p.stat().st_mtime)
+    apk = max(apks, key=lambda p: p.stat().st_mtime)
+    if apk.stat().st_size > MAX_APK_BYTES:
+        raise RuntimeError("APK 45 MB se badi hai.")
+    return apk
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
@@ -128,6 +132,8 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Aapki ek build pehle se chal rahi hai."); return
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
+    if doc.file_size and doc.file_size > MAX_ZIP_BYTES:
+        await update.message.reply_text("ZIP 20 MB se badi hai."); return
     job = {"status": "ZIP download ho rahi hai…", "cancel": threading.Event()}
     JOBS[uid] = job
     await update.message.reply_text("ZIP mil gayi. Build shuru kar raha hoon…", reply_markup=keyboard())
@@ -170,12 +176,7 @@ async def errors(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not ALLOWED_USER_IDS:
         raise RuntimeError("ALLOWED_USER_IDS secret set karein.")
-    app = (Application.builder()
-           .token(BOT_TOKEN)
-           .base_url(os.environ.get("TELEGRAM_API_BASE_URL", "http://127.0.0.1:8081/bot"))
-           .base_file_url(os.environ.get("TELEGRAM_FILE_BASE_URL", "http://127.0.0.1:8081/file/bot"))
-           .local_mode(os.environ.get("TELEGRAM_LOCAL_MODE", "true").lower() == "true")
-           .build())
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.Document.ALL, receive_zip))
