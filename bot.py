@@ -77,7 +77,6 @@ def build_apk(root: Path, cancel: threading.Event):
         "docker", "run", "--rm", "--network=bridge",
         "--memory=4g", "--memory-swap=4g", "--cpus=2",
         "--pids-limit=256", "--security-opt=no-new-privileges",
-        "--cap-drop=ALL", "--user", f"{os.getuid()}:{os.getgid()}",
         "--tmpfs=/tmp:rw,nosuid,size=1g",
         "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle",
         "-v", f"{root.resolve()}:/work", "-w", "/work",
