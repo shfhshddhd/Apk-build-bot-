@@ -74,8 +74,7 @@ def find_root(folder: Path):
 
 def build_apk(root: Path, cancel: threading.Event):
     wrapper = root / "gradlew"
-    # ZIP extraction creates files without executable bits. Set all execute bits so the\n    # wrapper remains executable inside the Docker bind mount even with a different UID.\n    wrapper.chmod(0o755)
-    cmd = ["docker", "run", "--rm", "--network=bridge", "--memory=4g", "--memory-swap=4g", "--cpus=2", "--pids-limit=256", "--security-opt=no-new-privileges", "--cap-drop=ALL", "--tmpfs=/tmp:rw,nosuid,size=1g", "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle", "-v", f"{root.resolve()}:/work", "-w", "/work", DOCKER_IMAGE, "bash", "-lc", "chmod 755 ./gradlew && ./gradlew --no-daemon assembleDebug"]
+    # ZIP extraction creates files without executable bits. Set all execute bits so the\n    # wrapper remains executable inside the Docker bind mount even with a different UID.\n    cmd = ["docker", "run", "--rm", "--network=bridge", "--memory=4g", "--memory-swap=4g", "--cpus=2", "--pids-limit=256", "--security-opt=no-new-privileges", "--cap-drop=ALL", "--tmpfs=/tmp:rw,nosuid,size=1g", "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle", "-v", f"{root.resolve()}:/work", "-w", "/work", DOCKER_IMAGE, "bash", "-lc", "bash ./gradlew --no-daemon assembleDebug"]
     log_path = root.parent / "gradle-build.log"
     try:
         with log_path.open("w", encoding="utf-8", errors="replace") as f:
