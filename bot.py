@@ -18,9 +18,9 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
 # No fixed ZIP/APK size cap. Actual limits depend on Telegram and runner resources.
-MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES", str(2 * 1024 * 1024 * 1024)))
-MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES", "100000"))
-BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "1800"))
+MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES") or str(2 * 1024 * 1024 * 1024))
+MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES") or "100000")
+BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS") or "1800")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 JOBS = {}
