@@ -23,27 +23,6 @@ jobs:
       - name: Check Docker
         run: docker info
 
-      - name: Start local Telegram Bot API server
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        run: |
-          test -n "$TELEGRAM_API_ID" || (echo "Missing TELEGRAM_API_ID secret" && exit 1)
-          test -n "$TELEGRAM_API_HASH" || (echo "Missing TELEGRAM_API_HASH secret" && exit 1)
-          mkdir -p /tmp/telegram-bot-api
-          docker run -d --name telegram-bot-api --restart=no \
-            -p 127.0.0.1:8081:8081 \
-            -v /tmp/telegram-bot-api:/tmp/telegram-bot-api \
-            ghcr.io/tdlib/telegram-bot-api \
-            --api-id="$TELEGRAM_API_ID" --api-hash="$TELEGRAM_API_HASH" \
-            --local --dir=/tmp/telegram-bot-api
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8081/ >/dev/null 2>&1; then break; fi
-            sleep 2
-          done
-          docker logs telegram-bot-api
-          docker ps --filter name=telegram-bot-api
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -52,10 +31,4 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
           DOCKER_IMAGE: ghcr.io/cirruslabs/android-sdk:35
-          TELEGRAM_LOCAL_MODE: "true"
-          TELEGRAM_API_BASE_URL: http://127.0.0.1:8081/bot
-          TELEGRAM_FILE_BASE_URL: http://127.0.0.1:8081/file/bot
-          MAX_UNZIPPED_BYTES: ${{ vars.MAX_UNZIPPED_BYTES }}
-          MAX_ZIP_FILES: ${{ vars.MAX_ZIP_FILES }}
-          BUILD_TIMEOUT_SECONDS: ${{ vars.BUILD_TIMEOUT_SECONDS }}
         run: python bot.py
