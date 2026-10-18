@@ -53,7 +53,7 @@ def safe_extract(zip_path: Path, dest: Path):
                 raise ValueError("ZIP mein symlink allowed nahi hai.")
             total += entry.file_size
             if total > MAX_UNZIPPED_BYTES:
-                raise ValueError("Extracted ZIP 250 MB se badi hai.")
+                raise ValueError(f"Extracted project {MAX_UNZIPPED_BYTES // (1024 * 1024)} MB safety limit se badi hai. MAX_UNZIPPED_BYTES badhane ke liye Actions variable set karein, agar runner mein disk space ho.")
             target = dest.joinpath(*pp.parts)
             if entry.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
