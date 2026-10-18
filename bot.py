@@ -81,7 +81,12 @@ def build_apk(root: Path, cancel: threading.Event):
         "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle",
         "-v", f"{root.resolve()}:/work", "-w", "/work",
         DOCKER_IMAGE, "bash", "-lc",
-        "bash ./gradlew --no-daemon assembleDebug",
+        "set -e; if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
+        + "test -s gradle/wrapper/gradle-wrapper.properties || "
+        + "{ echo 'Gradle wrapper properties missing: gradle/wrapper/gradle-wrapper.properties'; exit 1; }; "
+        + "mkdir -p gradle/wrapper; "
+        + "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar', 'gradle/wrapper/gradle-wrapper.jar')\"; "
+        + "fi; bash ./gradlew --no-daemon assembleDebug",
     ]
     log_path = root.parent / "gradle-build.log"
     try:
@@ -101,7 +106,7 @@ def build_apk(root: Path, cancel: threading.Event):
                     raise RuntimeError("Build 10 minute ki time limit se zyada chali.")
             if proc.returncode:
                 raise RuntimeError(
-                    "Gradle build fail hui. Log ka aakhri hissa:\\n"
+                    "Gradle build fail hui. Log ka aakhri hissa:\n"
                     + log_path.read_text(errors="replace")[-2500:]
                 )
     except FileNotFoundError as e:
