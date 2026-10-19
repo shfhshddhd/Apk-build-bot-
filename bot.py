@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import ipaddress
+import re
 import socket
 import shutil
 import stat
@@ -24,8 +25,8 @@ ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
 MAX_ZIP_BYTES = 200 * 1024 * 1024
 TELEGRAM_HOSTED_DOWNLOAD_LIMIT = 20 * 1024 * 1024
-MAX_UNZIPPED_BYTES = 1024 * 1024 * 1024
-MAX_ZIP_FILES = 5000
+MAX_UNZIPPED_BYTES = 2 * 1024 * 1024 * 1024
+MAX_ZIP_FILES = 50000
 MAX_APK_BYTES = 45 * 1024 * 1024
 BUILD_TIMEOUT_SECONDS = 1800
 FLUTTER_IMAGE = os.environ.get("FLUTTER_IMAGE", "ghcr.io/cirruslabs/flutter:stable")
@@ -149,8 +150,45 @@ def download_zip_url(url: str, destination: Path):
         raise ValueError("Category: DIRECT DOWNLOAD CONTENT. Link se ZIP file nahi mili. Shareable direct-download URL use karein; login/interstitial web pages supported nahi hain.")
 
 
+def telegram_archive_branch(url: str):
+    """Recognize the official Telegram Android GitHub branch archive URL."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() != "https" or (parsed.hostname or "").lower() != "github.com":
+        return None
+    match = re.fullmatch(r"/DrKLO/Telegram/archive/refs/heads/([A-Za-z0-9._-]+)\\.zip", parsed.path, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def clone_telegram_source(destination: Path, branch: str):
+    """Clone official Telegram source including required git submodules."""
+    command = [
+        "git", "clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules",
+        "--branch", branch, "https://github.com/DrKLO/Telegram.git", str(destination),
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace", timeout=2400, check=False)
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT TIMEOUT. Telegram repository/submodules ko 40 minute mein checkout nahi kiya ja saka.\\n" + output[-1800:]) from exc
+    except FileNotFoundError as exc:
+        raise ValueError("Category: BOT RUNNER. Git executable nahi mila; GitHub Actions runner setup check karein.") from exc
+    if result.returncode != 0:
+        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT. Official Telegram repository ya uske submodules download nahi hue.\\n" + result.stdout[-2200:])
+    if not (destination / "TMessagesProj").is_dir() or not (destination / ".gitmodules").is_file():
+        raise ValueError("Category: TELEGRAM SOURCE STRUCTURE. Clone mein expected Telegram Android source files nahi mile.")
+
+
 def detect_project(folder: Path):
     """Return (project_root, engine, human-readable name)."""
+    if ((folder / "TMessagesProj").is_dir() and (folder / "TMessagesProj_App").is_dir()
+            and (folder / "settings.gradle").is_file() and (folder / ".gitmodules").is_file()):
+        return folder, "telegram", "Telegram Android (with submodules)"
     for pubspec in folder.rglob("pubspec.yaml"):
         root = pubspec.parent
         if (root / "lib" / "main.dart").is_file():
@@ -213,6 +251,14 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
     if engine == "flutter":
         image = FLUTTER_IMAGE
         shell_command = "set -e; flutter --version; flutter pub get; flutter build apk --debug"
+    elif engine == "telegram":
+        image = DOCKER_IMAGE
+        shell_command = (
+            "set -e; "
+            "yes | sdkmanager --licenses >/dev/null 2>&1 || true; "
+            "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'; "
+            "bash ./gradlew --no-daemon assembleAfatDebug"
+        )
     else:
         image = DOCKER_IMAGE
         if engine in ("react-native", "capacitor", "expo", "cordova"):
@@ -266,8 +312,9 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         with log_path.open("w", encoding="utf-8", errors="replace") as f:
             proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
             started = time.monotonic()
+            timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS
             while proc.poll() is None:
-                if cancel.is_set() or time.monotonic() - started > BUILD_TIMEOUT_SECONDS:
+                if cancel.is_set() or time.monotonic() - started > timeout_seconds:
                     proc.terminate()
                     try:
                         proc.wait(timeout=10)
@@ -276,7 +323,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
                         proc.wait()
                     if cancel.is_set():
                         raise RuntimeError("Build cancel kar di gayi.")
-                    raise RuntimeError(f"Category: BUILD TIMEOUT / RUNNER RESOURCES. Build {BUILD_TIMEOUT_SECONDS // 60} minute se zyada chali; ye ZIP ke kharab hone ka proof nahi.")
+                    raise RuntimeError(f"Category: BUILD TIMEOUT / RUNNER RESOURCES. Build {timeout_seconds // 60} minute se zyada chali; ye source ZIP ke kharab hone ka proof nahi.")
                 time.sleep(1)
             if proc.returncode:
                 raise RuntimeError(diagnose_build_failure(log_path.read_text(errors="replace"), proc.returncode))
@@ -361,7 +408,13 @@ async def run_build(update, context, doc, job, direct_url=None):
         with tempfile.TemporaryDirectory(prefix="apk_bot_") as td:
             base = Path(td); zip_path = base / "project.zip"; src = base / "source"; src.mkdir()
             job["status"] = "ZIP download ho rahi hai…"
-            if direct_url:
+            telegram_branch = telegram_archive_branch(direct_url) if direct_url else None
+            if telegram_branch:
+                validate_public_https_url(direct_url)
+                job["status"] = "Telegram source aur submodules clone ho rahe hain…"
+                await safe_send(context.bot, chat_id, "Official Telegram Android source archive pehchana gaya. ZIP entry limit bypass karne ke bajay repository ko required submodules ke saath clone kar raha hoon; build lamba chal sakta hai.")
+                await asyncio.to_thread(clone_telegram_source, src, telegram_branch)
+            elif direct_url:
                 await asyncio.to_thread(download_zip_url, direct_url, zip_path)
             else:
                 tgfile = await context.bot.get_file(doc.file_id)
