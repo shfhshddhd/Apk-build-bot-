@@ -258,9 +258,11 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
             "echo '=== Runner storage and memory before Telegram build ==='; df -h / /work /tmp; free -h || true; "
             "yes | sdkmanager --licenses >/dev/null 2>&1 || true; "
             "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'; "
-            "export GRADLE_OPTS='-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'; "
-            "bash ./gradlew --no-daemon --max-workers=2 --no-parallel "
-            "-Dorg.gradle.jvmargs='-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' assembleAfatDebug"
+            "echo '=== Telegram Gradle conservative-memory mode ==='; "
+            "export GRADLE_OPTS='-Xmx2g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'; "
+            "bash ./gradlew --no-daemon --max-workers=1 --no-parallel "
+            "-Dorg.gradle.jvmargs='-Xmx2g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8' "
+            "-Dkotlin.compiler.execution.strategy=in-process assembleAfatDebug"
         )
     else:
         image = DOCKER_IMAGE
@@ -303,7 +305,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
             )
     cmd = [
         "docker", "run", "--rm", "--network=bridge",
-        "--memory=5g", "--memory-swap=5g", "--cpus=2",
+        "--memory=6g", "--memory-swap=6g", "--cpus=2",
         "--pids-limit=512", "--security-opt=no-new-privileges",
         "--tmpfs=/tmp:rw,exec,nosuid,size=1g",
         "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/work/.gradle-cache",
