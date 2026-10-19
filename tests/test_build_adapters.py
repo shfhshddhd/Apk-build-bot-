@@ -1,3 +1,4 @@
+import subprocess
 import unittest
 
 from build_adapters import SDK_PREPARE, build_command_for
@@ -36,6 +37,16 @@ class BuildAdapterTests(unittest.TestCase):
                 self.assertEqual(image, "android:test")
                 self.assertIn("prepare_android_sdk", command)
                 self.assertIn("nodejs", command)
+
+    def test_generated_shell_commands_parse(self):
+        for engine in ("gradle", "flutter", "react-native", "capacitor", "expo", "cordova", "telegram"):
+            with self.subTest(engine=engine):
+                _, command = build_command_for(engine, "android:test", "flutter:test")
+                result = subprocess.run(
+                    ["bash", "-n"], input=command, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_unknown_adapter_is_rejected(self):
         with self.assertRaises(ValueError):
