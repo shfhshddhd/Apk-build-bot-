@@ -10,7 +10,7 @@ class BuildAdapterTests(unittest.TestCase):
         self.assertIn("prepare_android_sdk", command)
         self.assertIn("run_gradle_debug", command)
         self.assertIn("gradle-wrapper.properties", command)
-        self.assertIn("gradle-\", command)
+        self.assertIn("gradle-([0-9]", command)
 
     def test_missing_wrapper_uses_declared_distribution_version(self):
         self.assertIn("distributionUrl", SDK_PREPARE)
