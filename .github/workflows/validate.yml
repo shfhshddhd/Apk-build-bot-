@@ -19,6 +19,24 @@ jobs:
           python-version: "3.12"
       - name: Compile Python source
         run: python -m py_compile bot.py
+      - name: Check framework detection and build paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('bot.py').read_text()
+          required = [
+              'if "expo" in deps:',
+              'return root, "cordova", "Apache Cordova"',
+              'npx expo prebuild --platform android --no-install',
+              'npx --yes cordova platform add android',
+              'root.rglob(pattern)',
+              'engine in ("react-native", "capacitor", "expo", "cordova")',
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit('Missing framework/build path: ' + ', '.join(missing))
+          print('Framework detection/build path checks passed.')
+          PY
       - name: Check required 200 MB download protections
         run: |
           python - <<'PY'
