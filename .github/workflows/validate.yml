@@ -1,0 +1,38 @@
+name: Validate APK Build Bot
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python source
+        run: python -m py_compile bot.py
+      - name: Check required 200 MB download protections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('bot.py').read_text()
+          required = [
+              'MAX_ZIP_BYTES = 200 * 1024 * 1024',
+              'def validate_public_https_url(',
+              'def download_zip_url(',
+              'written > MAX_ZIP_BYTES',
+              'filters.TEXT & ~filters.COMMAND, receive_url',
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit('Missing required protection/handler: ' + ', '.join(missing))
+          print('Syntax and direct-download guard checks passed.')
+          PY
