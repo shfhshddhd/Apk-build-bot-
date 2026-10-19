@@ -10,6 +10,7 @@ class BuildAdapterTests(unittest.TestCase):
         self.assertEqual(image, "android:test")
         self.assertIn("prepare_android_sdk", command)
         self.assertIn("run_gradle_debug", command)
+        self.assertIn("Selected Android debug task", command)
         self.assertIn("gradle-wrapper.properties", command)
         self.assertIn("gradle-([0-9]", command)
 
@@ -37,6 +38,9 @@ class BuildAdapterTests(unittest.TestCase):
                 self.assertEqual(image, "android:test")
                 self.assertIn("prepare_android_sdk", command)
                 self.assertIn("nodejs", command)
+                self.assertIn("install_js_dependencies", command)
+                self.assertIn("pnpm-lock.yaml", command)
+                self.assertIn("yarn.lock", command)
 
     def test_generated_shell_commands_parse(self):
         for engine in ("gradle", "flutter", "react-native", "capacitor", "expo", "cordova", "telegram"):
@@ -47,6 +51,10 @@ class BuildAdapterTests(unittest.TestCase):
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_gradle_runner_supports_flavored_debug_variants(self):
+        self.assertIn("assemble[A-Za-z0-9]*Debug", SDK_PREPARE)
+        self.assertIn("No assembleDebug or flavor-specific", SDK_PREPARE)
 
     def test_unknown_adapter_is_rejected(self):
         with self.assertRaises(ValueError):
