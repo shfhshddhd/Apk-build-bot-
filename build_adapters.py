@@ -120,12 +120,7 @@ def build_command_for(engine: str, android_image: str, flutter_image: str) -> tu
     if engine == "gradle":
         return android_image, common + sdk + "prepare_android_sdk; run_gradle_debug"
     if engine == "react-native":
-        node = (
-            "if ! command -v npm >/dev/null 2>&1; then apt-get update && "
-            "DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && "
-            "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && "
-            "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; fi; "
-        )
+        node = node_setup
         setup = (
             "if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
             "mkdir -p android/app/src/main/assets; ENTRY=index.js; [ -f index.js ] || ENTRY=index.android.js; "
