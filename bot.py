@@ -32,7 +32,7 @@ TELEGRAM_HOSTED_DOWNLOAD_LIMIT = MAX_ZIP_BYTES
 MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES", str(2 * 1024 * 1024 * 1024)))
 MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES", "50000"))
 MAX_APK_BYTES = int(os.environ.get("MAX_APK_BYTES", str(500 * 1024 * 1024)))
-BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "1800"))
+BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "10800"))
 MAX_ACTIVE_BUILDS = max(1, int(os.environ.get("MAX_ACTIVE_BUILDS", "1")))
 FLUTTER_IMAGE = os.environ.get("FLUTTER_IMAGE", "ghcr.io/cirruslabs/flutter:stable")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
@@ -242,7 +242,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
         with log_path.open("w", encoding="utf-8", errors="replace") as f:
             proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
             started = time.monotonic()
-            timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS
+            timeout_seconds = BUILD_TIMEOUT_SECONDS
             last_task_count = 0
             while proc.poll() is None:
                 if cancel.is_set() or time.monotonic() - started > timeout_seconds:
