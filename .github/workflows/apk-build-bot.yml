@@ -26,9 +26,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Validate bot Python syntax
+        run: python -m py_compile bot.py
+
       - name: Start Telegram APK bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
           DOCKER_IMAGE: ghcr.io/cirruslabs/android-sdk:35
+          FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
         run: python bot.py
