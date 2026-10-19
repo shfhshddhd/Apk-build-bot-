@@ -73,7 +73,7 @@ PY
     echo "Restoring wrapper JAR for declared Gradle $VERSION"
     mkdir -p gradle/wrapper
     curl --fail --silent --show-error --location --max-time 45 \
-      "https://raw.githubusercontent.com/gradle/gradle/v\${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+      "https://raw.githubusercontent.com/gradle/gradle/v${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
       --output gradle/wrapper/gradle-wrapper.jar
     test -s gradle/wrapper/gradle-wrapper.jar || { echo 'Wrapper JAR download failed.'; return 2; }
   fi
@@ -83,10 +83,10 @@ PY
 run_gradle_debug() {
   if [ -f ./gradlew ]; then
     restore_gradle_wrapper || return $?
-    export GRADLE_OPTS="\${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
+    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
     bash ./gradlew --no-daemon --max-workers=2 --stacktrace assembleDebug
   elif command -v gradle >/dev/null 2>&1; then
-    export GRADLE_OPTS="\${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
+    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
     gradle --no-daemon --max-workers=2 --stacktrace assembleDebug
   else
     echo 'No Gradle wrapper or system Gradle is available for this project.'
