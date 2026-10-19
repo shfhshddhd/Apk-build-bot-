@@ -31,6 +31,15 @@ jobs:
               'npx --yes cordova platform add android',
               'root.rglob(pattern)',
               'engine in ("react-native", "capacitor", "expo", "cordova")',
+              'MAX_ZIP_FILES = 50000',
+              'MAX_UNZIPPED_BYTES = 2 * 1024 * 1024 * 1024',
+              'def telegram_archive_branch(url: str):',
+              'def clone_telegram_source(destination: Path, branch: str):',
+              '"--recurse-submodules", "--shallow-submodules"',
+              'return folder, "telegram", "Telegram Android (with submodules)"',
+              "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'",
+              'assembleAfatDebug',
+              'timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS',
           ]
           missing = [item for item in required if item not in source]
           if missing:
@@ -52,5 +61,5 @@ jobs:
           missing = [item for item in required if item not in source]
           if missing:
               raise SystemExit('Missing required protection/handler: ' + ', '.join(missing))
-          print('Syntax and direct-download guard checks passed.')
+          print('Syntax, direct-download guards, ZIP limits, and Telegram build-path checks passed.')
           PY
