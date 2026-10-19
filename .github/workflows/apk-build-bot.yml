@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: apk-build-bot-singleton
+  cancel-in-progress: false
+
 jobs:
   telegram-bot:
     runs-on: ubuntu-22.04
