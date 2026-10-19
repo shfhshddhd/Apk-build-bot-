@@ -93,9 +93,13 @@ def detect_project(folder: Path):
             continue
         deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
         if "react-native" in deps:
-            raise ValueError("Category: FRAMEWORK SUPPORT. React Native project detect hua, lekin current builder mein Node/Metro dependency setup enabled nahi hai. Ye ZIP ke kharab hone ka proof nahi; React Native build engine chahiye.")
+            if not (root / "android" / "gradlew").is_file():
+                raise ValueError("Category: PROJECT STRUCTURE. React Native project mila, lekin android/gradlew missing hai. Android platform files ke saath project export karein.")
+            return root, "react-native", "React Native"
         if any(x in deps for x in ("@capacitor/android", "@ionic/angular", "@ionic/react", "@ionic/vue")):
-            raise ValueError("Category: FRAMEWORK SUPPORT. Ionic/Capacitor project detect hua. Iske liye Node dependencies aur Capacitor Android sync chahiye; current builder ye steps automatically nahi karta. ZIP ko kharab kehna sahi nahi hoga.")
+            if not (root / "android" / "gradlew").is_file():
+                raise ValueError("Category: PROJECT STRUCTURE. Ionic/Capacitor project mila, lekin android/gradlew missing hai. Android platform add/sync karke project ZIP karein.")
+            return root, "capacitor", "Ionic/Capacitor"
     raise ValueError("Category: PROJECT STRUCTURE. Supported Android project structure detect nahi hua. Native Android ke liye gradlew + settings.gradle(.kts) + app/build.gradle(.kts), ya Flutter ke liye pubspec.yaml + lib/main.dart chahiye. Agar files nested folder mein hain, poora project folder ZIP karein.")
 
 
@@ -125,15 +129,28 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         shell_command = "set -e; flutter --version; flutter pub get; flutter build apk --debug"
     else:
         image = DOCKER_IMAGE
-        shell_command = (
-            "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; "
-            "if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
-            "test -s gradle/wrapper/gradle-wrapper.properties || "
-            "{ echo 'Gradle wrapper properties missing: gradle/wrapper/gradle-wrapper.properties'; exit 1; }; "
-            "mkdir -p gradle/wrapper; "
-            "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar', 'gradle/wrapper/gradle-wrapper.jar')\"; "
-            "fi; bash ./gradlew --no-daemon assembleDebug"
-        )
+        if engine in ("react-native", "capacitor"):
+            if engine == "react-native":
+                setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
+                         "mkdir -p android/app/src/main/assets; ENTRY=index.js; [ -f index.js ] || ENTRY=index.android.js; "
+                         "npx react-native bundle --platform android --dev false --entry-file \"$ENTRY\" "
+                         "--bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res")
+            else:
+                setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
+                         "if node -e \"process.exit(require('./package.json').scripts?.build ? 0 : 1)\"; then npm run build; fi; npx cap sync android")
+            shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+                             "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                             + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
+        else:
+            shell_command = (
+                "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; "
+                "if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
+                "test -s gradle/wrapper/gradle-wrapper.properties || "
+                "{ echo 'Gradle wrapper properties missing: gradle/wrapper/gradle-wrapper.properties'; exit 1; }; "
+                "mkdir -p gradle/wrapper; "
+                "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar', 'gradle/wrapper/gradle-wrapper.jar')\"; "
+                "fi; bash ./gradlew --no-daemon assembleDebug"
+            )
     cmd = [
         "docker", "run", "--rm", "--network=bridge",
         "--memory=5g", "--memory-swap=5g", "--cpus=2",
@@ -166,6 +183,8 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         raise RuntimeError("Category: BOT / RUNNER CONFIGURATION. Docker executable runner par nahi mila. GitHub Actions workflow aur Docker setup check karein.") from e
     if engine == "flutter":
         apks = list((root / "build" / "app" / "outputs" / "flutter-apk").glob("*.apk"))
+    elif engine in ("react-native", "capacitor"):
+        apks = [p for p in (root / "android").rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     else:
         apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     if not apks:
