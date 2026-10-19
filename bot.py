@@ -162,7 +162,7 @@ def detect_project(folder: Path):
             continue
         seen_roots.add(root)
         has_settings = (root / "settings.gradle").is_file() or (root / "settings.gradle.kts").is_file()
-        has_build_script = any((root / name).is_file() for name in ("build.gradle", "build.gradle.kts", "app/build.gradle", "app/build.gradle.kts"))
+        has_build_script = any(p.is_file() for pattern in ("build.gradle", "build.gradle.kts") for p in root.rglob(pattern))
         if (root / "gradlew").is_file() and has_settings and has_build_script:
             return root, "gradle", "Native Android / Multi-module Gradle"
     for package_file in folder.rglob("package.json"):
@@ -222,7 +222,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
                          "npx react-native bundle --platform android --dev false --entry-file \"$ENTRY\" "
                          "--bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res")
                 shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; fi; "
                                  + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
             elif engine == "capacitor":
                 setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
