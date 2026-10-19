@@ -78,10 +78,10 @@ PY
     mkdir -p gradle/wrapper
     rm -f gradle/wrapper/gradle-wrapper.jar
     if ! curl --fail --silent --show-error --location --max-time 45 \
-      "https://raw.githubusercontent.com/gradle/gradle/v\${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+      "https://raw.githubusercontent.com/gradle/gradle/v${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
       --output gradle/wrapper/gradle-wrapper.jar; then
       rm -f gradle/wrapper/gradle-wrapper.jar
-      echo "Wrapper JAR download failed for Gradle tag v\${VERSION}."
+      echo "Wrapper JAR download failed for Gradle tag v${VERSION}."
       return 2
     fi
     test -s gradle/wrapper/gradle-wrapper.jar || { echo 'Wrapper JAR download returned an empty file.'; return 2; }
