@@ -32,6 +32,7 @@ MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES", str(2 * 1024 * 102
 MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES", "50000"))
 MAX_APK_BYTES = int(os.environ.get("MAX_APK_BYTES", str(500 * 1024 * 1024)))
 BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "1800"))
+MAX_ACTIVE_BUILDS = max(1, int(os.environ.get("MAX_ACTIVE_BUILDS", "1")))
 FLUTTER_IMAGE = os.environ.get("FLUTTER_IMAGE", "ghcr.io/cirruslabs/flutter:stable")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -199,7 +200,11 @@ def diagnose_build_failure(log_text: str, returncode: int) -> str:
         (("could not resolve all files", "could not find", "could not resolve", "failed to transform", "could not get resource"), "DEPENDENCY / PROJECT CONFIGURATION", "Gradle dependency/plugin resolve nahi hua. Versions, repositories, network aur dependency declarations check karein."),
         (("compilation error", "e: ", "error: ", "cannot find symbol", "unresolved reference", "failed to compile"), "SOURCE CODE / COMPILATION", "Compiler ne source code mein error report kiya. Neeche actual compiler log dekhein."),
         (("manifest merger failed", "resource linking failed", "error: resource"), "ANDROID RESOURCES / MANIFEST", "Manifest, resource reference ya dependency compatibility issue mila."),
-        (("gradle-wrapper", "unsupported class file major version", "minimum supported gradle version"), "GRADLE / JAVA TOOLCHAIN", "Gradle wrapper, Java version ya Android Gradle Plugin compatibility issue ho sakta hai.")
+        (("gradle-wrapper", "unsupported class file major version", "minimum supported gradle version", "requires java", "this version of the android gradle plugin requires"), "GRADLE / JAVA TOOLCHAIN", "Gradle wrapper, Java version ya Android Gradle Plugin compatibility issue ho sakta hai. Project-pinned versions aur runner Java version compare karein."),
+        (("task 'assembled​​ebug' not found", "task 'assembledebug' not found", "task not found"), "GRADLE / BUILD VARIANT", "Project mein default assembleDebug task nahi mila. Product flavors, custom variant ya module-specific task ho sakta hai."),
+        (("node: command not found", "npm: command not found", "unsupported engine", "engine node"), "JAVASCRIPT TOOLCHAIN", "Node.js/npm missing ya incompatible hai. Project ke package.json mein required Node version check karein."),
+        (("sdkmanager: command not found", "failed to find target", "platforms;android-"), "ANDROID SDK CONFIGURATION", "Required Android SDK platform/build-tools unavailable hain. SDK package aur compileSdk configuration check karein."),
+        (("http 429", "too many requests", "status code 429", "rate limit"), "NETWORK / REPOSITORY RATE LIMIT", "Package repository ne rate limit ki. Thodi der baad retry karein; repeated automatic retries nahi kiye gaye.")
     ]
     for needles, category, reason in rules:
         if any(n in low for n in needles):
@@ -382,6 +387,7 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• ZIP entries: {MAX_ZIP_FILES:,}\n"
         f"• APK output: {MAX_APK_BYTES // (1024 * 1024)} MB\n"
         f"• Normal build timeout: {BUILD_TIMEOUT_SECONDS // 60} minutes\n"
+        f"• Maximum concurrent builds: {MAX_ACTIVE_BUILDS}\n"
         "Actual limits also depend on Telegram API, GitHub runner resources, network and disk space."
     )
 
@@ -422,6 +428,12 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid, doc = update.effective_user.id, update.message.document
     if uid in JOBS:
         await update.message.reply_text("Aapki ek build pehle se chal rahi hai."); return
+    if len(JOBS) >= MAX_ACTIVE_BUILDS:
+        await update.message.reply_text(
+            f"Build server busy hai. Abhi {MAX_ACTIVE_BUILDS} active build limit hai; "
+            "thodi der baad dobara try karein."
+        )
+        return
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
     if doc.file_size and doc.file_size > TELEGRAM_HOSTED_DOWNLOAD_LIMIT:
@@ -445,6 +457,12 @@ async def receive_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in JOBS:
         await update.message.reply_text("Aapki ek build pehle se chal rahi hai.")
+        return
+    if len(JOBS) >= MAX_ACTIVE_BUILDS:
+        await update.message.reply_text(
+            f"Build server busy hai. Abhi {MAX_ACTIVE_BUILDS} active build limit hai; "
+            "thodi der baad dobara try karein."
+        )
         return
     if len(url) > 4096:
         await update.message.reply_text("Download URL bahut lamba hai.")
