@@ -44,9 +44,9 @@ GitHub Actions is not permanent hosting. The workflow runner ends, and the bot s
 - Alternate ZIP source: **public HTTPS direct-download URL up to 200 MB by default** (downloaded in chunks).
 - Extracted source ZIP: **2 GB**.
 - ZIP entries: **50,000**.
-- Build timeout: **30 minutes** for normal projects; **90 minutes** for the official Telegram source build (checkout of Telegram source/submodules has a separate 40-minute timeout).
+- Build timeout: **3 hours** by default for all supported build paths, including the official Telegram source build (checkout of Telegram source/submodules has a separate 40-minute timeout). Configure with `BUILD_TIMEOUT_SECONDS` if needed.
 - APK delivery limit: **500 MB by default**, configurable through `MAX_APK_BYTES`; Telegram's local API, runner disk, network, and upload duration still constrain practical output size.
-- Extracted-source limit is configurable through `MAX_UNZIPPED_BYTES` (default 2 GB); entry-count limit through `MAX_ZIP_FILES` (default 50,000); normal build timeout through `BUILD_TIMEOUT_SECONDS` (default 30 minutes).
+- Extracted-source limit is configurable through `MAX_UNZIPPED_BYTES` (default 2 GB); entry-count limit through `MAX_ZIP_FILES` (default 50,000); build timeout through `BUILD_TIMEOUT_SECONDS` (default 3 hours / 10,800 seconds).
 - Build container resources are capped by Docker settings and the GitHub-hosted runner's available resources.
 
 ### Sending a 100–200 MB source ZIP
