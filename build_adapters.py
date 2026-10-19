@@ -19,8 +19,11 @@ import os, re
 ignored = {".git", ".gradle", "build", "node_modules", ".dart_tool", "Pods", "dist"}
 packages = set()
 gradle_files = []
+cmake_present = False
 for base, dirs, files in os.walk("/work"):
     dirs[:] = [d for d in dirs if d not in ignored]
+    if "CMakeLists.txt" in files:
+        cmake_present = True
     for name in files:
         if name in {"build.gradle", "build.gradle.kts", "gradle.properties"}:
             path = Path(base) / name
@@ -40,7 +43,7 @@ for base, dirs, files in os.walk("/work"):
             if "externalNativeBuild" in text:
                 for value in re.findall(r"\bversion\s+['\"](\d+\.\d+(?:\.\d+)?)['\"]", text):
                     packages.add(f"cmake;{value}")
-if any(Path("/work").rglob("CMakeLists.txt")):
+if cmake_present:
     all_gradle = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in gradle_files if p.exists())
     if "externalNativeBuild" in all_gradle:
         packages.add("cmake;3.22.1")
@@ -97,8 +100,10 @@ def build_command_for(engine: str, android_image: str, flutter_image: str) -> tu
     common = "set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
     sdk = SDK_PREPARE
     node_setup = (
-        "if ! command -v npm >/dev/null 2>&1; then "
-        "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+        "if ! command -v npm >/dev/null 2>&1 || [ \"$(node -p 'Number(process.versions.node.split(\".\")[0])' 2>/dev/null || echo 0)\" -lt 18 ]; then "
+        "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && "
+        "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && "
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; fi; "
     )
     if engine == "flutter":
         return flutter_image, common + sdk + "prepare_android_sdk; flutter --version; flutter pub get; flutter build apk --debug"
