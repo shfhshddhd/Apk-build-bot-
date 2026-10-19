@@ -255,9 +255,12 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         image = DOCKER_IMAGE
         shell_command = (
             "set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+            "echo '=== Runner storage and memory before Telegram build ==='; df -h / /work /tmp; free -h || true; "
             "yes | sdkmanager --licenses >/dev/null 2>&1 || true; "
             "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'; "
-            "bash ./gradlew --no-daemon assembleAfatDebug"
+            "export GRADLE_OPTS='-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8'; "
+            "bash ./gradlew --no-daemon --max-workers=2 --no-parallel "
+            "-Dorg.gradle.jvmargs='-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' assembleAfatDebug"
         )
     else:
         image = DOCKER_IMAGE
