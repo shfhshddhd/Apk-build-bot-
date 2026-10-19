@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -216,8 +217,9 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
     from build_adapters import build_command_for
 
     image, shell_command = build_command_for(engine, DOCKER_IMAGE, FLUTTER_IMAGE)
+    container_name = "apk-build-" + uuid.uuid4().hex[:12]
     cmd = [
-        "docker", "run", "--rm", "--network=bridge",
+        "docker", "run", "--rm", "--name", container_name, "--network=bridge",
         "--memory=6g", "--memory-swap=6g", "--cpus=2",
         "--pids-limit=512", "--security-opt=no-new-privileges",
         "--tmpfs=/tmp:rw,exec,nosuid,size=1g",
@@ -250,6 +252,15 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    # Stopping the Docker CLI alone may leave the container running.
+                    try:
+                        subprocess.run(
+                            ["docker", "rm", "-f", container_name],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            timeout=15, check=False,
+                        )
+                    except (OSError, subprocess.TimeoutExpired):
+                        log.exception("Could not force-remove cancelled build container")
                     if cancel.is_set():
                         raise RuntimeError("Build cancel kar di gayi.")
                     raise RuntimeError(
