@@ -24,7 +24,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
 MAX_ZIP_BYTES = 200 * 1024 * 1024
-TELEGRAM_HOSTED_DOWNLOAD_LIMIT = 20 * 1024 * 1024
+TELEGRAM_HOSTED_DOWNLOAD_LIMIT = MAX_ZIP_BYTES
 MAX_UNZIPPED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ZIP_FILES = 50000
 MAX_APK_BYTES = 45 * 1024 * 1024
@@ -368,7 +368,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
-    await update.message.reply_text("Android project ZIP bhejein (Telegram attachment 20 MB tak) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Native Android, Flutter, React Native aur Ionic/Capacitor supported build paths available hain.", reply_markup=keyboard())
+    await update.message.reply_text("Android project ZIP bhejein (Telegram attachment max 200 MB) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Native Android, Flutter, React Native aur Ionic/Capacitor supported build paths available hain.", reply_markup=keyboard())
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -377,7 +377,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     uid, action = update.effective_user.id, q.data
     if action == "help":
-        await q.message.reply_text("Android project ZIP bhejein (Telegram attachment 20 MB tak) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Login-required links supported nahi hain.", reply_markup=keyboard())
+        await q.message.reply_text("Android project ZIP bhejein (Telegram attachment max 200 MB) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Login-required links supported nahi hain.", reply_markup=keyboard())
     elif action == "status":
         job = JOBS.get(uid)
         await q.message.reply_text("Build status: " + job["status"] if job else "Abhi koi build nahi chal rahi.", reply_markup=keyboard())
@@ -397,7 +397,7 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
     if doc.file_size and doc.file_size > TELEGRAM_HOSTED_DOWNLOAD_LIMIT:
-        await update.message.reply_text("Category: TELEGRAM HOSTED API LIMIT. Telegram attachment download yahan 20 MB tak supported hai. 20–200 MB ZIP ke liye isi ZIP ka public HTTPS direct-download link paste karein."); return
+        await update.message.reply_text("Category: SOURCE ZIP SIZE. ZIP 200 MB limit se badi hai. ZIP ko 200 MB ya usse chhota karein, ya project ka public HTTPS direct-download link bhejein (max 200 MB)."); return
     job = {"status": "ZIP download ho rahi hai…", "cancel": threading.Event()}
     JOBS[uid] = job
     await update.message.reply_text("ZIP mil gayi. Build shuru kar raha hoon…", reply_markup=keyboard())
@@ -518,7 +518,14 @@ async def errors(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not ALLOWED_USER_IDS:
         raise RuntimeError("ALLOWED_USER_IDS secret set karein.")
-    app = Application.builder().token(BOT_TOKEN).build()
+    builder = Application.builder().token(BOT_TOKEN)
+    if os.environ.get("TELEGRAM_LOCAL_API", "").strip() == "1":
+        builder = (builder.base_url("http://127.0.0.1:8081/bot")
+                   .base_file_url("http://127.0.0.1:8081/file/bot")
+                   .local_mode(True)
+                   .http_version("1.1")
+                   .get_updates_http_version("1.1"))
+    app = builder.build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.Document.ALL, receive_zip))
