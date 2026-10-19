@@ -37,12 +37,9 @@ def _inventory(folder: Path):
 def detect_project(folder: Path):
     """Return (project_root, engine, human-readable name) for a supported project."""
     folder = folder.resolve()
-    files = _inventory(folder)
-    by_name = {}
-    for path in files:
-        by_name.setdefault(path.name.lower(), []).append(path)
 
-    # This special source build needs Git submodules, which ZIP archives omit.
+    # Check the special source build before inventorying it: its submodules can
+    # contain many files, and the generic inspection cap should not block it.
     if (
         (folder / "TMessagesProj").is_dir()
         and (folder / "TMessagesProj_App").is_dir()
@@ -50,6 +47,11 @@ def detect_project(folder: Path):
         and (folder / ".gitmodules").is_file()
     ):
         return folder, "telegram", "Telegram Android (with submodules)"
+
+    files = _inventory(folder)
+    by_name = {}
+    for path in files:
+        by_name.setdefault(path.name.lower(), []).append(path)
 
     # Prefer actual Flutter application roots over incidental nested manifests.
     for pubspec in by_name.get("pubspec.yaml", []):
