@@ -53,6 +53,9 @@ jobs:
               "def download_zip_url(",
               "artifact.testzip()",
               'if "AndroidManifest.xml" not in artifact.namelist()',
+              'for output_dir in root.rglob("outputs/apk")',
+              '["docker", "rm", "-f", container_name]',
+              '"--name", container_name',
               "hashlib.sha256()",
           ]
           required_inspector = [
