@@ -65,7 +65,7 @@ The current runner defaults to **one active build at a time** (`MAX_ACTIVE_BUILD
 
 The project inspector ignores generated/dependency directories such as `node_modules`, `.git`, `.gradle`, `build`, and `dist`, and caps the number of inspected files. Framework projects are detected before generated Android subprojects so Expo and React Native projects can receive their framework-specific build steps. After the build, the bot checks that the output is non-empty, a valid ZIP/APK archive, has no damaged archive entries, and contains `AndroidManifest.xml`. The delivery caption includes artifact size and SHA-256 checksum. These checks improve confidence but do not prove that every device can install or run the APK.
 
-Run local regression tests with `pip install -r requirements.txt` followed by `python -m py_compile bot.py project_inspector.py build_adapters.py` and `python -m unittest discover -s tests -v`.
+Run validation from GitHub Actions → **Validate APK Build Bot** → **Run workflow**, or locally with `pip install -r requirements.txt`, then `python -m py_compile bot.py project_inspector.py build_adapters.py` and `python -m unittest discover -s tests -v`. The workflow checks Python syntax, framework detection, generated shell syntax, and static safety/artifact guards; it does not perform a full real-world APK build for every framework.
 
 ## Telegram commands
 
