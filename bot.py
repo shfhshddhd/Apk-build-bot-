@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import ipaddress
+import hashlib
 import re
 import socket
 import shutil
@@ -20,15 +21,17 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
+from project_inspector import detect_project
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
-MAX_ZIP_BYTES = 200 * 1024 * 1024
+MAX_ZIP_BYTES = int(os.environ.get("MAX_ZIP_BYTES", str(200 * 1024 * 1024)))
 TELEGRAM_HOSTED_DOWNLOAD_LIMIT = MAX_ZIP_BYTES
-MAX_UNZIPPED_BYTES = 2 * 1024 * 1024 * 1024
-MAX_ZIP_FILES = 50000
-MAX_APK_BYTES = 45 * 1024 * 1024
-BUILD_TIMEOUT_SECONDS = 1800
+MAX_UNZIPPED_BYTES = int(os.environ.get("MAX_UNZIPPED_BYTES", str(2 * 1024 * 1024 * 1024)))
+MAX_ZIP_FILES = int(os.environ.get("MAX_ZIP_FILES", "50000"))
+MAX_APK_BYTES = int(os.environ.get("MAX_APK_BYTES", str(500 * 1024 * 1024)))
+BUILD_TIMEOUT_SECONDS = int(os.environ.get("BUILD_TIMEOUT_SECONDS", "1800"))
 FLUTTER_IMAGE = os.environ.get("FLUTTER_IMAGE", "ghcr.io/cirruslabs/flutter:stable")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -184,49 +187,6 @@ def clone_telegram_source(destination: Path, branch: str):
         raise ValueError("Category: TELEGRAM SOURCE STRUCTURE. Clone mein expected Telegram Android source files nahi mile.")
 
 
-def detect_project(folder: Path):
-    """Return (project_root, engine, human-readable name)."""
-    if ((folder / "TMessagesProj").is_dir() and (folder / "TMessagesProj_App").is_dir()
-            and (folder / "settings.gradle").is_file() and (folder / ".gitmodules").is_file()):
-        return folder, "telegram", "Telegram Android (with submodules)"
-    for pubspec in folder.rglob("pubspec.yaml"):
-        root = pubspec.parent
-        if (root / "lib" / "main.dart").is_file():
-            return root, "flutter", "Flutter"
-    candidates = [folder] + [p.parent for p in folder.rglob("gradlew") if p.is_file()]
-    seen_roots = set()
-    for root in candidates:
-        if root in seen_roots:
-            continue
-        seen_roots.add(root)
-        has_settings = (root / "settings.gradle").is_file() or (root / "settings.gradle.kts").is_file()
-        has_build_script = any(p.is_file() for pattern in ("build.gradle", "build.gradle.kts") for p in root.rglob(pattern))
-        if (root / "gradlew").is_file() and has_settings and has_build_script:
-            return root, "gradle", "Native Android / Multi-module Gradle"
-    for package_file in folder.rglob("package.json"):
-        root = package_file.parent
-        try:
-            import json
-            package = json.loads(package_file.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
-        # Expo includes React Native, so detect it first.
-        if "expo" in deps:
-            return root, "expo", "Expo (React Native)"
-        if "cordova" in deps or (root / "config.xml").is_file():
-            return root, "cordova", "Apache Cordova"
-        if "react-native" in deps:
-            if not (root / "android" / "gradlew").is_file():
-                raise ValueError("Category: PROJECT STRUCTURE. React Native project mila, lekin android/gradlew missing hai. Android platform files ke saath project export karein.")
-            return root, "react-native", "React Native"
-        if any(x in deps for x in ("@capacitor/android", "@ionic/angular", "@ionic/react", "@ionic/vue")):
-            if not (root / "android" / "gradlew").is_file():
-                raise ValueError("Category: PROJECT STRUCTURE. Ionic/Capacitor project mila, lekin android/gradlew missing hai. Android platform add/sync karke project ZIP karein.")
-            return root, "capacitor", "Ionic/Capacitor"
-    raise ValueError("Category: PROJECT STRUCTURE. Supported Android project structure detect nahi hua. Native Android ke liye gradlew + settings.gradle(.kts) + app/build.gradle(.kts), ya Flutter ke liye pubspec.yaml + lib/main.dart chahiye. Agar files nested folder mein hain, poora project folder ZIP karein.")
-
-
 def diagnose_build_failure(log_text: str, returncode: int) -> str:
     low = log_text.lower()
     tail = log_text[-4500:].strip() or "(Build log khaali hai.)"
@@ -296,12 +256,15 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
         else:
             shell_command = (
                 "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; "
+                "if [ -f ./gradlew ]; then "
                 "if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
                 "test -s gradle/wrapper/gradle-wrapper.properties || "
-                "{ echo 'Gradle wrapper properties missing: gradle/wrapper/gradle-wrapper.properties'; exit 1; }; "
+                "{ echo 'Gradle wrapper is incomplete and no wrapper properties are present.'; exit 2; }; "
                 "mkdir -p gradle/wrapper; "
                 "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar', 'gradle/wrapper/gradle-wrapper.jar')\"; "
-                "fi; bash ./gradlew --no-daemon assembleDebug"
+                "fi; chmod +x ./gradlew || true; bash ./gradlew --no-daemon assembleDebug; "
+                "elif command -v gradle >/dev/null 2>&1; then gradle --no-daemon assembleDebug; "
+                "else echo 'No Gradle wrapper or system Gradle is available for this project.'; exit 2; fi"
             )
     cmd = [
         "docker", "run", "--rm", "--network=bridge",
@@ -360,8 +323,23 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
     if not apks:
         raise RuntimeError("Category: BUILD OUTPUT / BOT CONFIGURATION. Build command successful dikhi, lekin expected debug APK nahi mili. Output path aur build logs check karein.")
     apk = max(apks, key=lambda p: p.stat().st_mtime)
+    if not apk.is_file() or apk.stat().st_size <= 0:
+        raise RuntimeError("Category: ARTIFACT VERIFICATION. APK output empty ya missing hai.")
     if apk.stat().st_size > MAX_APK_BYTES:
-        raise RuntimeError(f"Category: APK DELIVERY LIMIT. APK {apk.stat().st_size // (1024 * 1024)} MB hai; current bot limit 45 MB hai. Ye build failure nahi, delivery-size limit hai.")
+        raise RuntimeError(
+            f"Category: APK DELIVERY LIMIT. APK {apk.stat().st_size // (1024 * 1024)} MB hai; "
+            f"configured limit {MAX_APK_BYTES // (1024 * 1024)} MB hai. "
+            "MAX_APK_BYTES badha sakte hain agar Telegram API aur runner resources allow karein."
+        )
+    try:
+        with zipfile.ZipFile(apk) as artifact:
+            damaged_entry = artifact.testzip()
+            if damaged_entry:
+                raise RuntimeError(f"Category: ARTIFACT VERIFICATION. APK archive corrupt hai: {damaged_entry}")
+            if "AndroidManifest.xml" not in artifact.namelist():
+                raise RuntimeError("Category: ARTIFACT VERIFICATION. APK mein AndroidManifest.xml nahi mila.")
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError("Category: ARTIFACT VERIFICATION. Output file valid APK/ZIP archive nahi hai.") from exc
     return apk
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -494,8 +472,23 @@ async def run_build(update, context, doc, job, direct_url=None):
             except TelegramError:
                 pass
             job["status"] = "APK bheji ja rahi hai…"
+            digest = hashlib.sha256()
+            with apk.open("rb") as artifact_file:
+                for chunk in iter(lambda: artifact_file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            size_mb = apk.stat().st_size / (1024 * 1024)
             with apk.open("rb") as f:
-                await context.bot.send_document(chat_id=chat_id, document=f, filename=apk.name, caption="Debug APK ready hai.")
+                await context.bot.send_document(
+                    chat_id=chat_id,
+                    document=f,
+                    filename=apk.name,
+                    caption=(
+                        "✅ Debug APK ready hai.\\n"
+                        f"Framework: {project_name}\\n"
+                        f"Size: {size_mb:.2f} MB\\n"
+                        f"SHA-256: {digest.hexdigest()}"
+                    ),
+                )
     except zipfile.BadZipFile:
         await safe_send(context.bot, chat_id, "Category: UPLOADED ZIP FILE. File valid ZIP archive nahi hai ya corrupt hai. Project ko dobara ZIP karke bhejein.", reply_markup=keyboard())
     except (ValueError, RuntimeError) as e:
