@@ -67,15 +67,24 @@ import re
 text = Path("gradle/wrapper/gradle-wrapper.properties").read_text(encoding="utf-8", errors="ignore")
 match = re.search(r"gradle-([0-9][A-Za-z0-9.+-]*)-(?:bin|all)\.zip", text)
 if not match: raise SystemExit("Could not determine Gradle version from distributionUrl.")
-print(match.group(1))
+version = match.group(1)
+# Release tags use a patch component (e.g. v8.7.0), but distributionUrl may say 8.7.
+if re.fullmatch(r"\d+\.\d+", version):
+    version += ".0"
+print(version)
 PY
 ) || return 2
     echo "Restoring wrapper JAR for declared Gradle $VERSION"
     mkdir -p gradle/wrapper
-    curl --fail --silent --show-error --location --max-time 45 \
-      "https://raw.githubusercontent.com/gradle/gradle/v${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
-      --output gradle/wrapper/gradle-wrapper.jar
-    test -s gradle/wrapper/gradle-wrapper.jar || { echo 'Wrapper JAR download failed.'; return 2; }
+    rm -f gradle/wrapper/gradle-wrapper.jar
+    if ! curl --fail --silent --show-error --location --max-time 45 \
+      "https://raw.githubusercontent.com/gradle/gradle/v\${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+      --output gradle/wrapper/gradle-wrapper.jar; then
+      rm -f gradle/wrapper/gradle-wrapper.jar
+      echo "Wrapper JAR download failed for Gradle tag v\${VERSION}."
+      return 2
+    fi
+    test -s gradle/wrapper/gradle-wrapper.jar || { echo 'Wrapper JAR download returned an empty file.'; return 2; }
   fi
   [ ! -f ./gradlew ] || chmod +x ./gradlew || true
 }
