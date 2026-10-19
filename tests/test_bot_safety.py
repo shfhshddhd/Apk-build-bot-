@@ -41,7 +41,7 @@ class UploadSafetyTests(unittest.TestCase):
         self.write_zip([("../outside.txt", "not allowed")])
         with self.assertRaisesRegex(ValueError, "unsafe file path"):
             bot.safe_extract(self.archive, self.destination)
-        self.assertFalse((self.root.parent / "outside.txt").exists())
+        self.assertFalse((self.root / "outside.txt").exists())
 
     def test_safe_extract_rejects_symlinks(self):
         info = zipfile.ZipInfo("link")
@@ -55,7 +55,7 @@ class UploadSafetyTests(unittest.TestCase):
     def test_safe_extract_enforces_entry_count(self):
         self.write_zip([("a.txt", "a"), ("b.txt", "b")])
         with patch.object(bot, "MAX_ZIP_FILES", 1):
-            with self.assertRaisesRegex(ValueError, "too many files"):
+            with self.assertRaisesRegex(ValueError, "bahut zyada files"):
                 bot.safe_extract(self.archive, self.destination)
 
     def test_download_url_rejects_non_https_and_private_hosts(self):
