@@ -7,9 +7,12 @@ Telegram bot that accepts an application-source ZIP, detects supported Android p
 - **Native Android (Java/Kotlin + Gradle):** builds with `assembleDebug`.
 - **Flutter:** detects `pubspec.yaml` plus `lib/main.dart`, runs `flutter pub get` and `flutter build apk --debug`.
 - **React Native:** installs npm dependencies, bundles the JS entry point, and runs Android Gradle `assembleDebug`.
+- **Expo (React Native):** installs npm dependencies, generates the native Android project with `expo prebuild`, and runs Gradle `assembleDebug`. Projects that require EAS cloud-only services, private credentials, or unsupported native configuration may still need project-specific setup.
 - **Ionic/Capacitor:** installs npm dependencies, runs the project's build script when present, syncs Android, and runs Gradle `assembleDebug`.
+- **Apache Cordova:** installs npm dependencies, adds the Android platform, and runs a debug Android build.
+- **Multi-module Gradle projects:** detects Gradle Android projects even when the app module is not named `app`, provided a wrapper, settings file, and build script are present.
 
-This is not a universal compiler for every framework or arbitrary ZIP. A valid source project still needs compatible dependencies, build files, SDK versions, and any private credentials or environment values required by that project. It produces debug APKs; release signing is not configured.
+This is not a universal compiler for every framework or arbitrary ZIP. Unity, Godot, .NET MAUI, NativeScript, Kotlin Multiplatform edge cases, and projects requiring proprietary export tooling are not guaranteed to build through these generic paths. A valid source project still needs compatible dependencies, build files, SDK versions, and any private credentials or environment values required by that project. It produces debug APKs; release signing is not configured.
 
 ## Required repository secrets
 
