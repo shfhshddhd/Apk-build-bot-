@@ -342,11 +342,105 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
         raise RuntimeError("Category: ARTIFACT VERIFICATION. Output file valid APK/ZIP archive nahi hai.") from exc
     return apk
 
+HELP_TEXT = (
+    "📦 Universal APK Build Bot\\n\\n"
+    "Complete supported project ZIP bhejein ya public HTTPS direct-download link paste karein.\\n"
+    "Supported build paths: Native Android/Gradle, Flutter, React Native, Expo, "
+    "Ionic/Capacitor, Cordova, aur special Telegram Android source build.\\n\\n"
+    "Commands: /help /status /cancel /frameworks /limits /about\\n"
+    "Note: project ko compatible SDKs, dependencies aur required credentials phir bhi chahiye ho sakte hain."
+)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
-    await update.message.reply_text("Android project ZIP bhejein (Telegram attachment max 200 MB) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Native Android, Flutter, React Native aur Ionic/Capacitor supported build paths available hain.", reply_markup=keyboard())
+    await update.message.reply_text(HELP_TEXT, reply_markup=keyboard())
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    await update.message.reply_text(HELP_TEXT, reply_markup=keyboard())
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    job = JOBS.get(update.effective_user.id)
+    if not job:
+        await update.message.reply_text("Abhi koi active build nahi chal rahi.")
+        return
+    progress = job.get("progress")
+    detail = job.get("detail", "")
+    message = "Build status: " + job.get("status", "Working…")
+    if progress is not None:
+        message += f"\\nEstimated progress: {progress}%"
+    if detail:
+        message += "\\nCurrent stage: " + str(detail)[:180]
+    await update.message.reply_text(message, reply_markup=keyboard())
+
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    job = JOBS.get(update.effective_user.id)
+    if not job:
+        await update.message.reply_text("Koi active build nahi hai.")
+        return
+    job["cancel"].set()
+    job["status"] = "Cancel ho rahi hai…"
+    await update.message.reply_text("Cancel request bhej di. Running container ko stop hone mein kuch seconds lag sakte hain.")
+
+
+async def frameworks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    await update.message.reply_text(
+        "Supported build paths:\\n"
+        "• Native Android Java/Kotlin + Gradle\\n"
+        "• Flutter\\n"
+        "• React Native\\n"
+        "• Expo (native prebuild)\\n"
+        "• Ionic / Capacitor\\n"
+        "• Apache Cordova\\n"
+        "• Official Telegram Android source (special build)\\n\\n"
+        "C/C++ NDK modules are supported when integrated into a compatible Gradle Android project. "
+        "Standalone Unity, Godot, .NET MAUI, Kivy/Buildozer and arbitrary website ZIPs are not yet guaranteed."
+    )
+
+
+async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    await update.message.reply_text(
+        "Current configured limits:\\n"
+        f"• Source ZIP: {MAX_ZIP_BYTES // (1024 * 1024)} MB\\n"
+        f"• Extracted source: {MAX_UNZIPPED_BYTES // (1024 * 1024)} MB\\n"
+        f"• ZIP entries: {MAX_ZIP_FILES:,}\\n"
+        f"• APK output: {MAX_APK_BYTES // (1024 * 1024)} MB\\n"
+        f"• Normal build timeout: {BUILD_TIMEOUT_SECONDS // 60} minutes\\n"
+        "Actual limits also depend on Telegram API, GitHub runner resources, network and disk space."
+    )
+
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    await update.message.reply_text(
+        "Universal APK Build Bot\\n"
+        "Framework-aware project inspection, isolated Docker builds, diagnostic log summaries, "
+        "APK archive verification and SHA-256 reporting.\\n"
+        "Build success depends on project completeness, toolchain compatibility, dependencies and available resources."
+    )
+
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -355,7 +449,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     uid, action = update.effective_user.id, q.data
     if action == "help":
-        await q.message.reply_text("Android project ZIP bhejein (Telegram attachment max 200 MB) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Login-required links supported nahi hain.", reply_markup=keyboard())
+        await q.message.reply_text(HELP_TEXT, reply_markup=keyboard())
     elif action == "status":
         job = JOBS.get(uid)
         await q.message.reply_text("Build status: " + job["status"] if job else "Abhi koi build nahi chal rahi.", reply_markup=keyboard())
@@ -520,6 +614,12 @@ def main():
                    .get_updates_http_version("1.1"))
     app = builder.build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("cancel", cancel_command))
+    app.add_handler(CommandHandler("frameworks", frameworks_command))
+    app.add_handler(CommandHandler("limits", limits_command))
+    app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.Document.ALL, receive_zip))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_url))
