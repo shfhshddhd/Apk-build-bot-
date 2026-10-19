@@ -240,9 +240,12 @@ async def run_build(update, context, doc, job):
     except TelegramError as e:
         log.exception("Telegram file transfer failed")
         await safe_send(context.bot, chat_id, "Category: TELEGRAM / FILE TRANSFER. File transfer fail hua. Size limit, network ya Telegram API response check karein.\nTechnical error: " + str(e)[:1200], reply_markup=keyboard())
-    except Exception:
-        log.exception("Unexpected build error")
-        await safe_send(context.bot, chat_id, "Unexpected error. GitHub Actions logs check karein.", reply_markup=keyboard())
+    except OSError as e:
+        log.exception("Filesystem or runner error")
+        await safe_send(context.bot, chat_id, "Category: BOT / RUNNER FILESYSTEM. File operation fail hui; ye ZIP ke source-code issue ka proof nahi.\nTechnical error: " + type(e).__name__ + ": " + str(e)[:1200], reply_markup=keyboard())
+    except Exception as e:
+        log.exception("Unexpected build/bot error")
+        await safe_send(context.bot, chat_id, "Category: BOT INTERNAL ERROR. Bot ke internal operation mein unexpected exception aayi; isse ZIP ki galti sabit nahi hoti.\nTechnical error: " + type(e).__name__ + ": " + str(e)[:1200] + "\nFull traceback GitHub Actions log mein hai.", reply_markup=keyboard())
     finally:
         if JOBS.get(uid) is job: JOBS.pop(uid, None)
 
