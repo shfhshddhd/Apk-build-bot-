@@ -91,11 +91,11 @@ run_gradle_debug() {
     echo 'No Gradle wrapper or system Gradle is available for this project.'
     return 2
   fi
-  export GRADLE_OPTS="\${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
+  export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
   local common_args=(--no-daemon --max-workers=2 --stacktrace --console=plain)
   local task_file selected_task
   task_file=$(mktemp)
-  if "\${gradle_cmd[@]}" "\${common_args[@]}" tasks --all >"$task_file" 2>&1; then
+  if "${gradle_cmd[@]}" "${common_args[@]}" tasks --all >"$task_file" 2>&1; then
     if grep -Eq '(^|[[:space:]])assembleDebug([[:space:]]|$)' "$task_file"; then
       selected_task="assembleDebug"
     else
@@ -114,7 +114,7 @@ run_gradle_debug() {
     return 2
   fi
   echo "Selected Android debug task: $selected_task"
-  "\${gradle_cmd[@]}" "\${common_args[@]}" "$selected_task"
+  "${gradle_cmd[@]}" "${common_args[@]}" "$selected_task"
 }
 """
 
