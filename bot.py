@@ -605,14 +605,7 @@ async def errors(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not ALLOWED_USER_IDS:
         raise RuntimeError("ALLOWED_USER_IDS secret set karein.")
-    builder = Application.builder().token(BOT_TOKEN)
-    if os.environ.get("TELEGRAM_LOCAL_API", "").strip() == "1":
-        builder = (builder.base_url("http://127.0.0.1:8081/bot")
-                   .base_file_url("http://127.0.0.1:8081/file/bot")
-                   .local_mode(True)
-                   .http_version("1.1")
-                   .get_updates_http_version("1.1"))
-    app = builder.build()
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
