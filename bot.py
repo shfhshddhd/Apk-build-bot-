@@ -254,7 +254,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
     elif engine == "telegram":
         image = DOCKER_IMAGE
         shell_command = (
-            "set -e; "
+            "set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
             "yes | sdkmanager --licenses >/dev/null 2>&1 || true; "
             "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'; "
             "bash ./gradlew --no-daemon assembleAfatDebug"
