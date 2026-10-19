@@ -1,12 +1,17 @@
 import asyncio
 import logging
 import os
+import ipaddress
+import socket
 import shutil
 import stat
 import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -17,7 +22,8 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "ghcr.io/cirruslabs/android-sdk:35")
-MAX_ZIP_BYTES = 20 * 1024 * 1024
+MAX_ZIP_BYTES = 200 * 1024 * 1024
+TELEGRAM_HOSTED_DOWNLOAD_LIMIT = 20 * 1024 * 1024
 MAX_UNZIPPED_BYTES = 1024 * 1024 * 1024
 MAX_ZIP_FILES = 5000
 MAX_APK_BYTES = 45 * 1024 * 1024
@@ -55,7 +61,7 @@ def safe_extract(zip_path: Path, dest: Path):
                 raise ValueError("ZIP mein symlink allowed nahi hai.")
             total += entry.file_size
             if total > MAX_UNZIPPED_BYTES:
-                raise ValueError("Extracted ZIP 250 MB se badi hai.")
+                raise ValueError("Category: SOURCE ZIP SIZE. Extracted project 1 GB limit se bada hai.")
             target = dest.joinpath(*pp.parts)
             if entry.flag_bits & 0x1:
                 raise ValueError("ZIP password-protected hai. Password protection hata kar dobara ZIP karein.")
@@ -71,6 +77,77 @@ def safe_extract(zip_path: Path, dest: Path):
                     raise ValueError("ZIP mein duplicate/conflicting file path mila: " + name)
                 with zf.open(entry) as src, target.open("xb") as out:
                     shutil.copyfileobj(src, out)
+
+
+class PublicHTTPSRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow HTTPS redirects only after rejecting non-public destinations."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_public_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def validate_public_https_url(url: str):
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            raise ValueError("Sirf public HTTPS direct-download links allowed hain.")
+        if parsed.username or parsed.password or parsed.port not in (None, 443):
+            raise ValueError("Download URL mein credentials ya non-standard port allowed nahi hai.")
+        host = parsed.hostname.rstrip(".")
+        if host.lower() in {"localhost", "localhost.localdomain"}:
+            raise ValueError("Private/local network URLs allowed nahi hain.")
+        try:
+            literal = ipaddress.ip_address(host)
+            addresses = [literal]
+        except ValueError:
+            records = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            addresses = [ipaddress.ip_address(item[4][0]) for item in records]
+        if not addresses or any(not addr.is_global for addr in addresses):
+            raise ValueError("Download URL ka host public internet IP par resolve nahi hota.")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("Download URL ka hostname resolve nahi hua; public HTTPS direct link check karein.") from exc
+
+
+def download_zip_url(url: str, destination: Path):
+    """Stream a public HTTPS ZIP to disk with redirect and 200 MB protections."""
+    validate_public_https_url(url)
+    opener = urllib.request.build_opener(PublicHTTPSRedirectHandler())
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Telegram-APK-Build-Bot/1.0", "Accept": "application/zip, application/octet-stream, */*"},
+    )
+    try:
+        with opener.open(request, timeout=45) as response:
+            final_url = response.geturl()
+            validate_public_https_url(final_url)
+            length = response.headers.get("Content-Length")
+            if length:
+                try:
+                    if int(length) > MAX_ZIP_BYTES:
+                        raise ValueError("Category: SOURCE ZIP SIZE. Direct-download ZIP 200 MB limit se badi hai.")
+                except ValueError as exc:
+                    if "Category:" in str(exc):
+                        raise
+            written = 0
+            with destination.open("wb") as output:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > MAX_ZIP_BYTES:
+                        raise ValueError("Category: SOURCE ZIP SIZE. Direct-download ZIP 200 MB limit se badi hai.")
+                    output.write(chunk)
+            if written == 0:
+                raise ValueError("Category: DIRECT DOWNLOAD. Link se empty file mili.")
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"Category: DIRECT DOWNLOAD / HTTP {exc.code}. Link public aur directly downloadable hona chahiye.") from exc
+    except urllib.error.URLError as exc:
+        raise ValueError("Category: DIRECT DOWNLOAD / NETWORK. Link download nahi hua: " + str(exc.reason)[:300]) from exc
+    if not zipfile.is_zipfile(destination):
+        destination.unlink(missing_ok=True)
+        raise ValueError("Category: DIRECT DOWNLOAD CONTENT. Link se ZIP file nahi mili. Shareable direct-download URL use karein; login/interstitial web pages supported nahi hain.")
+
 
 def detect_project(folder: Path):
     """Return (project_root, engine, human-readable name)."""
@@ -198,7 +275,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
-    await update.message.reply_text("Android Gradle project ki ZIP bhejein. Bot debug APK build karke bhejega.\nZIP mein gradlew, settings.gradle aur app/build.gradle hona chahiye.", reply_markup=keyboard())
+    await update.message.reply_text("Android project ZIP bhejein (Telegram attachment 20 MB tak) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Native Android, Flutter, React Native aur Ionic/Capacitor supported build paths available hain.", reply_markup=keyboard())
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -207,7 +284,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     uid, action = update.effective_user.id, q.data
     if action == "help":
-        await q.message.reply_text("Android project ZIP bhejein (APK nahi). ZIP mein gradlew, settings.gradle aur app/build.gradle hona chahiye.", reply_markup=keyboard())
+        await q.message.reply_text("Android project ZIP bhejein (Telegram attachment 20 MB tak) ya public HTTPS direct-download link paste karein (ZIP max 200 MB). Login-required links supported nahi hain.", reply_markup=keyboard())
     elif action == "status":
         job = JOBS.get(uid)
         await q.message.reply_text("Build status: " + job["status"] if job else "Abhi koi build nahi chal rahi.", reply_markup=keyboard())
@@ -226,21 +303,45 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Aapki ek build pehle se chal rahi hai."); return
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
-    if doc.file_size and doc.file_size > MAX_ZIP_BYTES:
-        await update.message.reply_text("Category: TELEGRAM UPLOAD LIMIT. Hosted Telegram Bot API se bot 20 MB tak ZIP download kar sakta hai. 100–200 MB ZIP ke liye local Telegram Bot API server ya alternate upload route configure karna hoga; sirf ZIP limit badhana kaafi nahi."); return
+    if doc.file_size and doc.file_size > TELEGRAM_HOSTED_DOWNLOAD_LIMIT:
+        await update.message.reply_text("Category: TELEGRAM HOSTED API LIMIT. Telegram attachment download yahan 20 MB tak supported hai. 20–200 MB ZIP ke liye isi ZIP ka public HTTPS direct-download link paste karein."); return
     job = {"status": "ZIP download ho rahi hai…", "cancel": threading.Event()}
     JOBS[uid] = job
     await update.message.reply_text("ZIP mil gayi. Build shuru kar raha hoon…", reply_markup=keyboard())
     job["task"] = asyncio.create_task(run_build(update, context, doc, job))
 
-async def run_build(update, context, doc, job):
+
+async def receive_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    url = (update.message.text or "").strip()
+    if not url.lower().startswith("https://"):
+        return
+    uid = update.effective_user.id
+    if uid in JOBS:
+        await update.message.reply_text("Aapki ek build pehle se chal rahi hai.")
+        return
+    if len(url) > 4096:
+        await update.message.reply_text("Download URL bahut lamba hai.")
+        return
+    job = {"status": "HTTPS link validate/download ho raha hai…", "cancel": threading.Event()}
+    JOBS[uid] = job
+    await update.message.reply_text("HTTPS link receive hua. Public-host safety checks ke baad ZIP (max 200 MB) download karke build karunga.", reply_markup=keyboard())
+    job["task"] = asyncio.create_task(run_build(update, context, None, job, direct_url=url))
+
+
+async def run_build(update, context, doc, job, direct_url=None):
     uid, chat_id = update.effective_user.id, update.effective_chat.id
     try:
         with tempfile.TemporaryDirectory(prefix="apk_bot_") as td:
             base = Path(td); zip_path = base / "project.zip"; src = base / "source"; src.mkdir()
             job["status"] = "ZIP download ho rahi hai…"
-            tgfile = await context.bot.get_file(doc.file_id)
-            await tgfile.download_to_drive(custom_path=str(zip_path))
+            if direct_url:
+                await asyncio.to_thread(download_zip_url, direct_url, zip_path)
+            else:
+                tgfile = await context.bot.get_file(doc.file_id)
+                await tgfile.download_to_drive(custom_path=str(zip_path))
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
             job["status"] = "ZIP check/extract ho rahi hai…"
             await asyncio.to_thread(safe_extract, zip_path, src)
@@ -278,6 +379,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.Document.ALL, receive_zip))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_url))
     app.add_error_handler(errors)
     app.run_polling()
 
