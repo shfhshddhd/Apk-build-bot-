@@ -111,7 +111,7 @@ from pathlib import Path
 text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
 found = []
 for line in text.splitlines():
-    match = re.match(r"^\\s*((?:[A-Za-z0-9_.-]+:)*)((?:assemble)[A-Za-z0-9]*Debug)\\s+-", line)
+    match = re.match(r"^\s*((?:[A-Za-z0-9_.-]+:)*)((?:assemble)[A-Za-z0-9]*Debug)\s+-", line)
     if not match:
         continue
     prefix, task = match.groups()
