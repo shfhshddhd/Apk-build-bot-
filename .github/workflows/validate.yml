@@ -40,6 +40,8 @@ jobs:
               "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'",
               'assembleAfatDebug',
               'timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS',
+              'if not telegram_branch:',
+              'await asyncio.to_thread(safe_extract, zip_path, src)',
           ]
           missing = [item for item in required if item not in source]
           if missing:
