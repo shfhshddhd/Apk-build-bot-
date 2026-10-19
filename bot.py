@@ -226,6 +226,16 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
         image, "bash", "-lc", shell_command,
     ]
     log_path = root.parent / "build.log"
+    # Remove only generated debug APK outputs so a stale/pre-uploaded artifact
+    # cannot be mistaken for the APK produced by this build.
+    flutter_output = root / "build" / "app" / "outputs" / "flutter-apk"
+    if engine == "flutter" and flutter_output.is_dir():
+        for stale_apk in flutter_output.glob("*.apk"):
+            stale_apk.unlink(missing_ok=True)
+    for output_dir in root.rglob("outputs/apk"):
+        if output_dir.is_dir():
+            for stale_apk in output_dir.rglob("*.apk"):
+                stale_apk.unlink(missing_ok=True)
     try:
         with log_path.open("w", encoding="utf-8", errors="replace") as f:
             proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
