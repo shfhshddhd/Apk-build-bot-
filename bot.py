@@ -247,7 +247,7 @@ def diagnose_build_failure(log_text: str, returncode: int) -> str:
     return f"Category: BUILD FAILED — ROOT CAUSE NEEDS LOG REVIEW\nAssessment: Build command exit code {returncode} ke saath fail hui. Available log se source ZIP aur builder ki galti ko certainty se alag nahi kiya ja saka. Neeche raw log hai.\n\nBuild log ka aakhri hissa:\n{tail}"
 
 
-def build_apk(root: Path, engine: str, cancel: threading.Event):
+def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
     if engine == "flutter":
         image = FLUTTER_IMAGE
         shell_command = "set -e; flutter --version; flutter pub get; flutter build apk --debug"
@@ -318,6 +318,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
             proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
             started = time.monotonic()
             timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS
+            last_task_count = 0
             while proc.poll() is None:
                 if cancel.is_set() or time.monotonic() - started > timeout_seconds:
                     proc.terminate()
@@ -329,7 +330,23 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
                     if cancel.is_set():
                         raise RuntimeError("Build cancel kar di gayi.")
                     raise RuntimeError(f"Category: BUILD TIMEOUT / RUNNER RESOURCES. Build {timeout_seconds // 60} minute se zyada chali; ye source ZIP ke kharab hone ka proof nahi.")
-                time.sleep(1)
+                if job is not None:
+                    try:
+                        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+                        task_count = len(re.findall(r"(?m)^> Task ", log_text))
+                        last_task_count = max(last_task_count, task_count)
+                        progress = min(95, 5 + int(last_task_count * (0.25 if engine == "telegram" else 1.5)))
+                        job["progress"] = max(job.get("progress", 0), progress)
+                        job["status"] = f"Build chal rahi hai — lagbhag {job['progress']}%"
+                        lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+                        task_lines = [line for line in lines if line.startswith("> Task ")]
+                        if task_lines:
+                            job["detail"] = task_lines[-1][:100]
+                        elif lines:
+                            job["detail"] = lines[-1][:100]
+                    except OSError:
+                        pass
+                time.sleep(2)
             if proc.returncode:
                 raise RuntimeError(diagnose_build_failure(log_path.read_text(errors="replace"), proc.returncode))
     except FileNotFoundError as e:
@@ -434,7 +451,48 @@ async def run_build(update, context, doc, job, direct_url=None):
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
             job["status"] = f"{project_name} project build ho raha hai…"
             await safe_send(context.bot, chat_id, f"Project detect hua: {project_name}. Required build tools se build kar raha hoon.")
-            apk = await asyncio.to_thread(build_apk, root, engine, job["cancel"])
+            job["progress"] = 1
+            job["detail"] = "Build environment start ho raha hai"
+            progress_message = await context.bot.send_message(
+                chat_id=chat_id,
+                text="🔧 **Build progress**\n[░░░░░░░░░░] 1%\nBuild environment start ho raha hai.\n*Percent estimate hai; Gradle exact overall percentage provide nahi karta.*",
+                parse_mode="Markdown",
+                reply_markup=keyboard(),
+            )
+            build_task = asyncio.create_task(asyncio.to_thread(build_apk, root, engine, job["cancel"], job))
+            last_progress_text = ""
+            while not build_task.done():
+                progress = int(job.get("progress", 1))
+                detail = job.get("detail", "Build chal rahi hai…")
+                filled = min(10, max(0, progress // 10))
+                bar = "█" * filled + "░" * (10 - filled)
+                progress_text = (
+                    "🔧 **Build progress**\n"
+                    f"[{bar}] {progress}%\n"
+                    f"Status: {detail}\n"
+                    f"Baqi: lagbhag {100 - progress}%\n"
+                    "*Percent estimate hai; Gradle exact overall percentage provide nahi karta.*"
+                )
+                if progress_text != last_progress_text:
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id, message_id=progress_message.message_id,
+                            text=progress_text, parse_mode="Markdown", reply_markup=keyboard(),
+                        )
+                        last_progress_text = progress_text
+                    except TelegramError:
+                        pass
+                await asyncio.sleep(5)
+            apk = await build_task
+            job["progress"] = 100
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id, message_id=progress_message.message_id,
+                    text="✅ **Build progress**\n[██████████] 100%\nDebug APK ready hai; ab file bhej raha hoon.",
+                    parse_mode="Markdown", reply_markup=keyboard(),
+                )
+            except TelegramError:
+                pass
             job["status"] = "APK bheji ja rahi hai…"
             with apk.open("rb") as f:
                 await context.bot.send_document(chat_id=chat_id, document=f, filename=apk.name, caption="Debug APK ready hai.")
