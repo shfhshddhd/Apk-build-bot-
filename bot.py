@@ -62,7 +62,7 @@ def safe_extract(zip_path: Path, dest: Path):
                 raise ValueError("ZIP mein symlink allowed nahi hai.")
             total += entry.file_size
             if total > MAX_UNZIPPED_BYTES:
-                raise ValueError("Category: SOURCE ZIP SIZE. Extracted project 1 GB limit se bada hai.")
+                raise ValueError("Category: SOURCE ZIP SIZE. Extracted project 2 GB limit se bada hai.")
             target = dest.joinpath(*pp.parts)
             if entry.flag_bits & 0x1:
                 raise ValueError("ZIP password-protected hai. Password protection hata kar dobara ZIP karein.")
@@ -158,7 +158,7 @@ def telegram_archive_branch(url: str):
         return None
     if parsed.scheme.lower() != "https" or (parsed.hostname or "").lower() != "github.com":
         return None
-    match = re.fullmatch(r"/DrKLO/Telegram/archive/refs/heads/([A-Za-z0-9._-]+)\\.zip", parsed.path, re.IGNORECASE)
+    match = re.fullmatch(r"/DrKLO/Telegram/archive/refs/heads/([A-Za-z0-9._-]+)\.zip", parsed.path, re.IGNORECASE)
     return match.group(1) if match else None
 
 
@@ -175,11 +175,11 @@ def clone_telegram_source(destination: Path, branch: str):
         output = exc.stdout or ""
         if isinstance(output, bytes):
             output = output.decode("utf-8", errors="replace")
-        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT TIMEOUT. Telegram repository/submodules ko 40 minute mein checkout nahi kiya ja saka.\\n" + output[-1800:]) from exc
+        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT TIMEOUT. Telegram repository/submodules ko 40 minute mein checkout nahi kiya ja saka.\n" + output[-1800:]) from exc
     except FileNotFoundError as exc:
         raise ValueError("Category: BOT RUNNER. Git executable nahi mila; GitHub Actions runner setup check karein.") from exc
     if result.returncode != 0:
-        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT. Official Telegram repository ya uske submodules download nahi hue.\\n" + result.stdout[-2200:])
+        raise ValueError("Category: TELEGRAM SOURCE CHECKOUT. Official Telegram repository ya uske submodules download nahi hue.\n" + result.stdout[-2200:])
     if not (destination / "TMessagesProj").is_dir() or not (destination / ".gitmodules").is_file():
         raise ValueError("Category: TELEGRAM SOURCE STRUCTURE. Clone mein expected Telegram Android source files nahi mile.")
 
