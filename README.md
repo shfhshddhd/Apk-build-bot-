@@ -11,6 +11,7 @@ Telegram bot that accepts an application-source ZIP, detects supported Android p
 - **Ionic/Capacitor:** installs npm dependencies, runs the project's build script when present, syncs Android, and runs Gradle `assembleDebug`.
 - **Apache Cordova:** installs npm dependencies, adds the Android platform, and runs a debug Android build.
 - **Multi-module Gradle projects:** detects Gradle Android projects even when the app module is not named `app`, provided a wrapper, settings file, and build script are present.
+- **Official Telegram Android source:** recognizes `https://github.com/DrKLO/Telegram/archive/refs/heads/<branch>.zip`, clones the matching official branch with recursive shallow submodules, installs Android SDK 36 / NDK 27.2.12479018 / CMake 3.22.1, and runs `assembleAfatDebug`. This special path avoids the GitHub archive's high file count and restores submodules that ZIP archives omit.
 
 This is not a universal compiler for every framework or arbitrary ZIP. Unity, Godot, .NET MAUI, NativeScript, Kotlin Multiplatform edge cases, and projects requiring proprietary export tooling are not guaranteed to build through these generic paths. A valid source project still needs compatible dependencies, build files, SDK versions, and any private credentials or environment values required by that project. It produces debug APKs; release signing is not configured.
 
@@ -36,9 +37,9 @@ GitHub Actions is not permanent hosting. The workflow runner ends, and the bot s
 
 - Telegram attachment download: **20 MB** through the standard hosted Bot API.
 - Alternate ZIP source: **public HTTPS direct-download URL up to 200 MB** (downloaded in chunks).
-- Extracted source: **1 GB**.
-- ZIP entries: **5,000**.
-- Build timeout: **30 minutes**.
+- Extracted source ZIP: **2 GB**.
+- ZIP entries: **50,000**.
+- Build timeout: **30 minutes** for normal projects; **90 minutes** for the official Telegram source build (checkout of Telegram source/submodules has a separate 40-minute timeout).
 - APK delivery limit: **45 MB**.
 - Build container resources are capped by Docker settings and the GitHub-hosted runner's available resources.
 
@@ -46,7 +47,7 @@ GitHub Actions is not permanent hosting. The workflow runner ends, and the bot s
 
 Telegram's standard hosted Bot API cannot download attachments larger than 20 MB. For a larger project, upload the ZIP to a file host and paste its **direct HTTPS download link** into the bot chat. The bot checks that the URL uses HTTPS and resolves to public internet IPs, checks redirects, streams no more than 200 MB, and verifies that the response is a ZIP before extraction. Links that require sign-in, show a download-confirmation HTML page, or do not directly return a ZIP are not supported. Do not share private project links or credentials in public chats.
 
-The direct-download route avoids Telegram's attachment-download ceiling; it does not raise Telegram's own 20 MB hosted API limit. For actual Telegram attachments above 20 MB, a local Telegram Bot API server is required.
+The direct-download route avoids Telegram's attachment-download ceiling; it does not raise Telegram's own 20 MB hosted API limit. For actual Telegram attachments above 20 MB, a local Telegram Bot API server is required. The special official Telegram archive URL is handled by a recursive shallow Git clone instead of downloading/extracting the archive ZIP, because the project requires Git submodules. The clone and native build may still exceed available runner disk, memory, or time; a successful build is not guaranteed on every runner.
 
 ## Error reporting
 
