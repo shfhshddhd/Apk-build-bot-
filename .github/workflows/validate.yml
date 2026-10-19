@@ -10,58 +10,56 @@ permissions:
   contents: read
 
 jobs:
-  syntax-check:
+  tests:
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile Python source
-        run: python -m py_compile bot.py
-      - name: Check framework detection and build paths
+          cache: pip
+
+      - name: Install bot dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python modules
+        run: python -m py_compile bot.py project_inspector.py
+
+      - name: Run project-inspection regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify critical safety and artifact checks exist
         run: |
           python - <<'PY'
           from pathlib import Path
-          source = Path('bot.py').read_text()
-          required = [
-              'if "expo" in deps:',
-              'return root, "cordova", "Apache Cordova"',
-              'npx expo prebuild --platform android --no-install',
-              'npx --yes cordova platform add android',
-              'root.rglob(pattern)',
-              'engine in ("react-native", "capacitor", "expo", "cordova")',
-              'MAX_ZIP_FILES = 50000',
-              'MAX_UNZIPPED_BYTES = 2 * 1024 * 1024 * 1024',
-              'def telegram_archive_branch(url: str):',
-              'def clone_telegram_source(destination: Path, branch: str):',
-              '"--recurse-submodules", "--shallow-submodules"',
-              'return folder, "telegram", "Telegram Android (with submodules)"',
-              "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'",
-              'assembleAfatDebug',
-              'timeout_seconds = 5400 if engine == "telegram" else BUILD_TIMEOUT_SECONDS',
-              'if not telegram_branch:',
-              'await asyncio.to_thread(safe_extract, zip_path, src)',
+          bot = Path("bot.py").read_text(encoding="utf-8")
+          inspector = Path("project_inspector.py").read_text(encoding="utf-8")
+          required_bot = [
+              "MAX_ZIP_BYTES = int(os.environ.get",
+              "MAX_UNZIPPED_BYTES = int(os.environ.get",
+              "MAX_APK_BYTES = int(os.environ.get",
+              "def safe_extract(",
+              "def validate_public_https_url(",
+              "def download_zip_url(",
+              "artifact.testzip()",
+              'if "AndroidManifest.xml" not in artifact.namelist()',
+              "hashlib.sha256()",
           ]
-          missing = [item for item in required if item not in source]
-          if missing:
-              raise SystemExit('Missing framework/build path: ' + ', '.join(missing))
-          print('Framework detection/build path checks passed.')
-          PY
-      - name: Check required 200 MB download protections
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          source = Path('bot.py').read_text()
-          required = [
-              'MAX_ZIP_BYTES = 200 * 1024 * 1024',
-              'def validate_public_https_url(',
-              'def download_zip_url(',
-              'written > MAX_ZIP_BYTES',
-              'filters.TEXT & ~filters.COMMAND, receive_url',
+          required_inspector = [
+              "def detect_project(",
+              'return root, "flutter", "Flutter"',
+              'return root, "expo", "Expo (React Native)"',
+              'return root, "react-native", "React Native"',
+              'return root, "capacitor", "Ionic/Capacitor"',
+              "MAX_INSPECTED_FILES",
           ]
-          missing = [item for item in required if item not in source]
+          missing = [f"bot.py: {x}" for x in required_bot if x not in bot]
+          missing += [f"project_inspector.py: {x}" for x in required_inspector if x not in inspector]
           if missing:
-              raise SystemExit('Missing required protection/handler: ' + ', '.join(missing))
-          print('Syntax, direct-download guards, ZIP limits, and Telegram build-path checks passed.')
+              raise SystemExit("Missing required checks: " + ", ".join(missing))
+          print("Critical safety, detection, and artifact checks are present.")
           PY
