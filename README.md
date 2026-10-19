@@ -55,11 +55,17 @@ Telegram's standard hosted Bot API cannot download attachments larger than 20 MB
 
 The direct-download route avoids Telegram's attachment-download ceiling; it does not raise Telegram's own 20 MB hosted API limit. For actual Telegram attachments above 20 MB, a local Telegram Bot API server is required. The special official Telegram archive URL is handled by a recursive shallow Git clone instead of downloading/extracting the archive ZIP, because the project requires Git submodules. The clone and native build may still exceed available runner disk, memory, or time; a successful build is not guaranteed on every runner.
 
+## Modular build adapters and toolchain setup
+
+Build execution is separated into `build_adapters.py`, so each supported framework can use its own command path without expanding the Telegram handler. Native Gradle and generated Android projects run an SDK preflight that reads literal `compileSdk`, `targetSdk`, `buildToolsVersion`, and `ndkVersion` declarations from Gradle files, installs requested SDK packages when detected, and reports available Java/RAM/disk details. If a Gradle wrapper JAR is missing, the bot reads the declared wrapper distribution version before attempting to retrieve the matching JAR instead of always downloading one hard-coded version. Node-based builds use Node.js 20 when the image has no suitable Node version.
+
+The current runner defaults to **one active build at a time** (`MAX_ACTIVE_BUILDS=1`) to reduce the risk of multiple 6 GB containers exhausting a standard GitHub runner. Requests arriving while busy are rejected with a retry message rather than silently competing for memory.
+
 ## Project inspection and artifact verification
 
 The project inspector ignores generated/dependency directories such as `node_modules`, `.git`, `.gradle`, `build`, and `dist`, and caps the number of inspected files. Framework projects are detected before generated Android subprojects so Expo and React Native projects can receive their framework-specific build steps. After the build, the bot checks that the output is non-empty, a valid ZIP/APK archive, has no damaged archive entries, and contains `AndroidManifest.xml`. The delivery caption includes artifact size and SHA-256 checksum. These checks improve confidence but do not prove that every device can install or run the APK.
 
-Run local regression tests with `pip install -r requirements.txt` followed by `python -m unittest discover -s tests -v`.
+Run local regression tests with `pip install -r requirements.txt` followed by `python -m py_compile bot.py project_inspector.py build_adapters.py` and `python -m unittest discover -s tests -v`.
 
 ## Telegram commands
 
