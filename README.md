@@ -21,10 +21,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 - `BOT_TOKEN`: Telegram bot token from BotFather.
 - `ALLOWED_USER_IDS`: numeric Telegram user ID(s), comma-separated if needed.
-- `TELEGRAM_API_ID`: Telegram API application ID from my.telegram.org (needed by the local Bot API workflow).
-- `TELEGRAM_API_HASH`: Telegram API application hash from my.telegram.org (needed by the local Bot API workflow).
 
-The workflow logs the bot out from Telegram's hosted API before starting the local Bot API server. Keep the local API configuration consistent; do not run the same bot token against hosted and local APIs simultaneously.
 
 Never commit bot tokens or put them directly in source code.
 
