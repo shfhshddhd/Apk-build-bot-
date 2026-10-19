@@ -105,11 +105,26 @@ run_gradle_debug() {
   local task_file selected_task
   task_file=$(mktemp)
   if "${gradle_cmd[@]}" "${common_args[@]}" tasks --all >"$task_file" 2>&1; then
-    if grep -Eq '(^|[[:space:]])assembleDebug([[:space:]]|$)' "$task_file"; then
-      selected_task="assembleDebug"
-    else
-      selected_task=$(sed -nE 's/^[[:space:]]*(assemble[A-Za-z0-9]*Debug)[[:space:]]+-.*$/\1/p' "$task_file" | sort -u | head -n 1)
-    fi
+    selected_task=$(python3 - "$task_file" <<'PY'
+import re, sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+found = []
+for line in text.splitlines():
+    match = re.match(r"^\\s*((?:[A-Za-z0-9_.-]+:)*)((?:assemble)[A-Za-z0-9]*Debug)\\s+-", line)
+    if not match:
+        continue
+    prefix, task = match.groups()
+    path = (prefix + task).rstrip(":")
+    if prefix:
+        path = ":" + path
+    found.append(path)
+if "assembleDebug" in found:
+    print("assembleDebug")
+elif found:
+    print(sorted(set(found), key=lambda value: (value.count(":"), value))[0])
+PY
+)
   else
     cat "$task_file"
     rm -f "$task_file"
