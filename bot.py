@@ -303,7 +303,7 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         "--memory=5g", "--memory-swap=5g", "--cpus=2",
         "--pids-limit=512", "--security-opt=no-new-privileges",
         "--tmpfs=/tmp:rw,exec,nosuid,size=1g",
-        "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/tmp/gradle",
+        "-e", "HOME=/tmp", "-e", "GRADLE_USER_HOME=/work/.gradle-cache",
         "-v", f"{root.resolve()}:/work", "-w", "/work",
         image, "bash", "-lc", shell_command,
     ]
