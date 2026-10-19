@@ -61,6 +61,17 @@ The project inspector ignores generated/dependency directories such as `node_mod
 
 Run local regression tests with `pip install -r requirements.txt` followed by `python -m unittest discover -s tests -v`.
 
+## Telegram commands
+
+- `/start` and `/help` — usage guide.
+- `/status` — current build stage and estimated progress.
+- `/cancel` — request cancellation of your active build.
+- `/frameworks` — supported build paths and known exclusions.
+- `/limits` — current configured file, extraction, timeout, and APK limits.
+- `/about` — architecture summary and build limitations.
+
+The bot currently keeps active job status in memory; completed-build history and persistent log retrieval are not implemented.
+
 ## Error reporting
 
 The bot categorizes common failures such as invalid ZIPs, unsupported project structure, SDK/toolchain failures, permissions, dependency/network errors, source compilation errors, resource/manifest errors, timeout/resource exhaustion, and missing APK output. When logs do not prove a single cause, the bot says that the root cause needs log review and includes the log tail instead of making a false claim.
