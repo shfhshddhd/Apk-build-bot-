@@ -275,7 +275,8 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
     else:
         apks = [
             p for p in root.rglob("*.apk")
-            if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts
+            if "outputs" in p.parts and "apk" in p.parts
+            and any("debug" in part.lower() for part in p.parts)
             and p.is_file()
         ]
     if not apks:
