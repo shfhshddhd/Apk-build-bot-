@@ -420,8 +420,11 @@ async def run_build(update, context, doc, job, direct_url=None):
                 tgfile = await context.bot.get_file(doc.file_id)
                 await tgfile.download_to_drive(custom_path=str(zip_path))
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
-            job["status"] = "ZIP check/extract ho rahi hai…"
-            await asyncio.to_thread(safe_extract, zip_path, src)
+            if not telegram_branch:
+                job["status"] = "ZIP check/extract ho rahi hai…"
+                await asyncio.to_thread(safe_extract, zip_path, src)
+            else:
+                job["status"] = "Telegram source structure check ho rahi hai…"
             root, engine, project_name = detect_project(src)
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
             job["status"] = f"{project_name} project build ho raha hai…"
