@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Compile Python modules
-        run: python -m py_compile bot.py project_inspector.py
+        run: python -m py_compile bot.py project_inspector.py build_adapters.py
 
       - name: Run project-inspection regression tests
         run: python -m unittest discover -s tests -v
@@ -38,6 +38,7 @@ jobs:
           from pathlib import Path
           bot = Path("bot.py").read_text(encoding="utf-8")
           inspector = Path("project_inspector.py").read_text(encoding="utf-8")
+          adapters = Path("build_adapters.py").read_text(encoding="utf-8")
           required_bot = [
               "MAX_ZIP_BYTES = int(os.environ.get",
               "MAX_UNZIPPED_BYTES = int(os.environ.get",
@@ -59,6 +60,13 @@ jobs:
           ]
           missing = [f"bot.py: {x}" for x in required_bot if x not in bot]
           missing += [f"project_inspector.py: {x}" for x in required_inspector if x not in inspector]
+          required_adapters = [
+              "def build_command_for(",
+              "prepare_android_sdk",
+              "restore_gradle_wrapper",
+              "compileSdk",
+          ]
+          missing += [f"build_adapters.py: {x}" for x in required_adapters if x not in adapters]
           if missing:
               raise SystemExit("Missing required checks: " + ", ".join(missing))
           print("Critical safety, detection, and artifact checks are present.")
