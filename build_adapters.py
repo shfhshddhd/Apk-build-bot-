@@ -25,7 +25,7 @@ for base, dirs, files in os.walk("/work"):
     if "CMakeLists.txt" in files:
         cmake_present = True
     for name in files:
-        if name in {"build.gradle", "build.gradle.kts", "gradle.properties"}:
+        if name in {"build.gradle", "build.gradle.kts", "gradle.properties", "libs.versions.toml"}:
             path = Path(base) / name
             gradle_files.append(path)
             try: text = path.read_text(encoding="utf-8", errors="ignore")
@@ -33,6 +33,7 @@ for base, dirs, files in os.walk("/work"):
             for pattern in (
                 r"\bcompileSdk(?:Version)?\s*(?:=\s*)?(?:\(\s*)?['\"]?(\d{2,3})",
                 r"\btargetSdk(?:Version)?\s*(?:=\s*)?['\"]?(\d{2,3})",
+                r"\b(?:androidCompileSdk|compileSdk|compile_sdk)\s*=\s*['\"]?(\d{2,3})",
             ):
                 for value in re.findall(pattern, text):
                     packages.add(f"platforms;android-{value}")
