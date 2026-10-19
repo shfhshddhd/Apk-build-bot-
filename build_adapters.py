@@ -81,17 +81,40 @@ PY
 }
 
 run_gradle_debug() {
+  local gradle_cmd=()
   if [ -f ./gradlew ]; then
     restore_gradle_wrapper || return $?
-    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
-    bash ./gradlew --no-daemon --max-workers=2 --stacktrace assembleDebug
+    gradle_cmd=(bash ./gradlew)
   elif command -v gradle >/dev/null 2>&1; then
-    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
-    gradle --no-daemon --max-workers=2 --stacktrace assembleDebug
+    gradle_cmd=(gradle)
   else
     echo 'No Gradle wrapper or system Gradle is available for this project.'
     return 2
   fi
+  export GRADLE_OPTS="\${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
+  local common_args=(--no-daemon --max-workers=2 --stacktrace --console=plain)
+  local task_file selected_task
+  task_file=$(mktemp)
+  if "\${gradle_cmd[@]}" "\${common_args[@]}" tasks --all >"$task_file" 2>&1; then
+    if grep -Eq '(^|[[:space:]])assembleDebug([[:space:]]|$)' "$task_file"; then
+      selected_task="assembleDebug"
+    else
+      selected_task=$(sed -nE 's/^[[:space:]]*(assemble[A-Za-z0-9]*Debug)[[:space:]]+-.*$/\1/p' "$task_file" | sort -u | head -n 1)
+    fi
+  else
+    cat "$task_file"
+    rm -f "$task_file"
+    echo 'Gradle task discovery failed; inspect the output above.'
+    return 2
+  fi
+  rm -f "$task_file"
+  if [ -z "$selected_task" ]; then
+    echo 'No assembleDebug or flavor-specific assemble*Debug task was found.'
+    echo 'This project may not define a standard Android debug variant.'
+    return 2
+  fi
+  echo "Selected Android debug task: $selected_task"
+  "\${gradle_cmd[@]}" "\${common_args[@]}" "$selected_task"
 }
 """
 
@@ -105,6 +128,10 @@ def build_command_for(engine: str, android_image: str, flutter_image: str) -> tu
         "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && "
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && "
         "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; fi; "
+        "install_js_dependencies() { "
+        "if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; "
+        "elif [ -f yarn.lock ]; then corepack enable && (yarn install --immutable || yarn install --frozen-lockfile); "
+        "elif [ -f package-lock.json ]; then npm ci; else npm install; fi; }; "
     )
     if engine == "flutter":
         return flutter_image, common + sdk + "prepare_android_sdk; flutter --version; flutter pub get; flutter build apk --debug"
@@ -123,7 +150,7 @@ def build_command_for(engine: str, android_image: str, flutter_image: str) -> tu
     if engine == "react-native":
         node = node_setup
         setup = (
-            "if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
+            "if [ ! -d node_modules ]; then install_js_dependencies; fi; "
             "mkdir -p android/app/src/main/assets; ENTRY=index.js; [ -f index.js ] || ENTRY=index.android.js; "
             "npx react-native bundle --platform android --dev false --entry-file \"$ENTRY\" "
             "--bundle-output android/app/src/main/assets/index.android.bundle "
@@ -132,14 +159,14 @@ def build_command_for(engine: str, android_image: str, flutter_image: str) -> tu
         return android_image, common + sdk + node + setup
     if engine == "capacitor":
         setup = (
-            "if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
+            "if [ ! -d node_modules ]; then install_js_dependencies; fi; "
             "if node -e \"process.exit(require('./package.json').scripts?.build ? 0 : 1)\"; then npm run build; fi; "
             "npx cap sync android; cd android; prepare_android_sdk; run_gradle_debug"
         )
         return android_image, common + sdk + node_setup + setup
     if engine == "expo":
         setup = (
-            "if [ -f package-lock.json ]; then npm ci; else npm install; fi; "
+            "install_js_dependencies; "
             "npx expo prebuild --platform android --no-install; cd android; "
             "prepare_android_sdk; run_gradle_debug"
         )
