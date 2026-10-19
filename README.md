@@ -10,7 +10,7 @@ Telegram bot that accepts an application-source ZIP, detects supported Android p
 - **Expo (React Native):** installs npm dependencies, generates the native Android project with `expo prebuild`, and runs Gradle `assembleDebug`. Projects that require EAS cloud-only services, private credentials, or unsupported native configuration may still need project-specific setup.
 - **Ionic/Capacitor:** installs npm dependencies, runs the project's build script when present, syncs Android, and runs Gradle `assembleDebug`.
 - **Apache Cordova:** installs npm dependencies, adds the Android platform, and runs a debug Android build.
-- **Multi-module Gradle projects:** detects Gradle Android projects even when the app module is not named `app`, provided a wrapper, settings file, and build script are present.
+- **Multi-module Gradle projects:** detects Android Gradle projects with custom module names. A missing wrapper is supported only when the build container has a compatible system Gradle; otherwise the bot reports the missing toolchain.
 - **Official Telegram Android source:** recognizes `https://github.com/DrKLO/Telegram/archive/refs/heads/<branch>.zip`, clones the matching official branch with recursive shallow submodules, installs Android SDK 36 / NDK 27.2.12479018 / CMake 3.22.1, and runs `assembleAfatDebug`. This special path avoids the GitHub archive's high file count and restores submodules that ZIP archives omit.
 
 This is not a universal compiler for every framework or arbitrary ZIP. Unity, Godot, .NET MAUI, NativeScript, Kotlin Multiplatform edge cases, and projects requiring proprietary export tooling are not guaranteed to build through these generic paths. A valid source project still needs compatible dependencies, build files, SDK versions, and any private credentials or environment values required by that project. It produces debug APKs; release signing is not configured.
@@ -21,6 +21,10 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 - `BOT_TOKEN`: Telegram bot token from BotFather.
 - `ALLOWED_USER_IDS`: numeric Telegram user ID(s), comma-separated if needed.
+- `TELEGRAM_API_ID`: Telegram API application ID from my.telegram.org (needed by the local Bot API workflow).
+- `TELEGRAM_API_HASH`: Telegram API application hash from my.telegram.org (needed by the local Bot API workflow).
+
+The workflow logs the bot out from Telegram's hosted API before starting the local Bot API server. Keep the local API configuration consistent; do not run the same bot token against hosted and local APIs simultaneously.
 
 Never commit bot tokens or put them directly in source code.
 
@@ -35,12 +39,14 @@ GitHub Actions is not permanent hosting. The workflow runner ends, and the bot s
 
 ## Current limits and important upload restriction
 
-- Telegram attachment download: **20 MB** through the standard hosted Bot API.
-- Alternate ZIP source: **public HTTPS direct-download URL up to 200 MB** (downloaded in chunks).
+- Source ZIP: **200 MB by default**, configurable through `MAX_ZIP_BYTES`.
+- Telegram attachment download uses the configured local Telegram Bot API server; actual limits still depend on the server, runner storage, and network.
+- Alternate ZIP source: **public HTTPS direct-download URL up to 200 MB by default** (downloaded in chunks).
 - Extracted source ZIP: **2 GB**.
 - ZIP entries: **50,000**.
 - Build timeout: **30 minutes** for normal projects; **90 minutes** for the official Telegram source build (checkout of Telegram source/submodules has a separate 40-minute timeout).
-- APK delivery limit: **45 MB**.
+- APK delivery limit: **500 MB by default**, configurable through `MAX_APK_BYTES`; Telegram's local API, runner disk, network, and upload duration still constrain practical output size.
+- Extracted-source limit is configurable through `MAX_UNZIPPED_BYTES` (default 2 GB); entry-count limit through `MAX_ZIP_FILES` (default 50,000); normal build timeout through `BUILD_TIMEOUT_SECONDS` (default 30 minutes).
 - Build container resources are capped by Docker settings and the GitHub-hosted runner's available resources.
 
 ### Sending a 100–200 MB source ZIP
@@ -48,6 +54,12 @@ GitHub Actions is not permanent hosting. The workflow runner ends, and the bot s
 Telegram's standard hosted Bot API cannot download attachments larger than 20 MB. For a larger project, upload the ZIP to a file host and paste its **direct HTTPS download link** into the bot chat. The bot checks that the URL uses HTTPS and resolves to public internet IPs, checks redirects, streams no more than 200 MB, and verifies that the response is a ZIP before extraction. Links that require sign-in, show a download-confirmation HTML page, or do not directly return a ZIP are not supported. Do not share private project links or credentials in public chats.
 
 The direct-download route avoids Telegram's attachment-download ceiling; it does not raise Telegram's own 20 MB hosted API limit. For actual Telegram attachments above 20 MB, a local Telegram Bot API server is required. The special official Telegram archive URL is handled by a recursive shallow Git clone instead of downloading/extracting the archive ZIP, because the project requires Git submodules. The clone and native build may still exceed available runner disk, memory, or time; a successful build is not guaranteed on every runner.
+
+## Project inspection and artifact verification
+
+The project inspector ignores generated/dependency directories such as `node_modules`, `.git`, `.gradle`, `build`, and `dist`, and caps the number of inspected files. Framework projects are detected before generated Android subprojects so Expo and React Native projects can receive their framework-specific build steps. After the build, the bot checks that the output is non-empty, a valid ZIP/APK archive, has no damaged archive entries, and contains `AndroidManifest.xml`. The delivery caption includes artifact size and SHA-256 checksum. These checks improve confidence but do not prove that every device can install or run the APK.
+
+Run local regression tests with `pip install -r requirements.txt` followed by `python -m unittest discover -s tests -v`.
 
 ## Error reporting
 
