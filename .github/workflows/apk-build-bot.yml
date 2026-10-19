@@ -24,49 +24,6 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Check Docker
-        run: docker info
-
-      - name: Start local Telegram Bot API
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        run: |
-          set -euo pipefail
-          if [ -z "$BOT_TOKEN" ] || [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
-            echo "Required secrets missing: BOT_TOKEN, TELEGRAM_API_ID, TELEGRAM_API_HASH."
-            exit 1
-          fi
-          sudo mkdir -p /var/lib/telegram-bot-api
-          # Official Bot API requires logging out from api.telegram.org before switching.
-          curl --fail --silent --show-error --max-time 30 \
-            --request POST "https://api.telegram.org/bot${BOT_TOKEN}/logOut"
-          docker run --detach --name telegram-bot-api --network host \
-            --env TELEGRAM_API_ID --env TELEGRAM_API_HASH \
-            --env TELEGRAM_LOCAL=1 --env TELEGRAM_HTTP_IP_ADDRESS=127.0.0.1 \
-            --volume /var/lib/telegram-bot-api:/var/lib/telegram-bot-api \
-            aiogram/telegram-bot-api:latest
-          ready=0
-          for attempt in $(seq 1 45); do
-            if curl --fail --silent --show-error --max-time 3 \
-              "http://127.0.0.1:8081/bot${BOT_TOKEN}/getMe" >/dev/null; then
-              ready=1
-              break
-            fi
-            if [ "$(docker inspect -f '{{.State.Running}}' telegram-bot-api 2>/dev/null || true)" != "true" ]; then
-              docker logs telegram-bot-api || true
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$ready" -ne 1 ]; then
-            docker logs telegram-bot-api || true
-            echo "Local Telegram Bot API did not become ready."
-            exit 1
-          fi
-          echo "Local Telegram Bot API is ready."
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -79,5 +36,4 @@ jobs:
           ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
           DOCKER_IMAGE: ghcr.io/cirruslabs/android-sdk:35
           FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
-          TELEGRAM_LOCAL_API: "1"
         run: python bot.py
