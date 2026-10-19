@@ -208,64 +208,9 @@ def diagnose_build_failure(log_text: str, returncode: int) -> str:
 
 
 def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
-    if engine == "flutter":
-        image = FLUTTER_IMAGE
-        shell_command = "set -e; flutter --version; flutter pub get; flutter build apk --debug"
-    elif engine == "telegram":
-        image = DOCKER_IMAGE
-        shell_command = (
-            "set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-            "echo '=== Runner storage and memory before Telegram build ==='; df -h / /work /tmp; free -h || true; "
-            "yes | sdkmanager --licenses >/dev/null 2>&1 || true; "
-            "sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'; "
-            "echo '=== Telegram Gradle conservative-memory mode ==='; "
-            "export GRADLE_OPTS='-Xmx2g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'; "
-            "bash ./gradlew --no-daemon --max-workers=1 --no-parallel "
-            "-Dorg.gradle.jvmargs='-Xmx2g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8' "
-            "-Dkotlin.compiler.execution.strategy=in-process assembleAfatDebug"
-        )
-    else:
-        image = DOCKER_IMAGE
-        if engine in ("react-native", "capacitor", "expo", "cordova"):
-            if engine == "react-native":
-                setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
-                         "mkdir -p android/app/src/main/assets; ENTRY=index.js; [ -f index.js ] || ENTRY=index.android.js; "
-                         "npx react-native bundle --platform android --dev false --entry-file \"$ENTRY\" "
-                         "--bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res")
-                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; fi; "
-                                 + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
-            elif engine == "capacitor":
-                setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
-                         "if node -e \"process.exit(require('./package.json').scripts?.build ? 0 : 1)\"; then npm run build; fi; npx cap sync android")
-                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
-                                 + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
-            elif engine == "expo":
-                setup = ("if [ -f package-lock.json ]; then npm ci; else npm install; fi; "
-                         "npx expo prebuild --platform android --no-install; cd android; bash ./gradlew --no-daemon assembleDebug")
-                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
-                                 + setup)
-            else:
-                setup = ("if [ -f package-lock.json ]; then npm ci; else npm install; fi; "
-                         "npx --yes cordova platform add android; npx --yes cordova build android")
-                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
-                                 + setup)
-        else:
-            shell_command = (
-                "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; "
-                "if [ -f ./gradlew ]; then "
-                "if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then "
-                "test -s gradle/wrapper/gradle-wrapper.properties || "
-                "{ echo 'Gradle wrapper is incomplete and no wrapper properties are present.'; exit 2; }; "
-                "mkdir -p gradle/wrapper; "
-                "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar', 'gradle/wrapper/gradle-wrapper.jar')\"; "
-                "fi; chmod +x ./gradlew || true; bash ./gradlew --no-daemon assembleDebug; "
-                "elif command -v gradle >/dev/null 2>&1; then gradle --no-daemon assembleDebug; "
-                "else echo 'No Gradle wrapper or system Gradle is available for this project.'; exit 2; fi"
-            )
+    from build_adapters import build_command_for
+
+    image, shell_command = build_command_for(engine, DOCKER_IMAGE, FLUTTER_IMAGE)
     cmd = [
         "docker", "run", "--rm", "--network=bridge",
         "--memory=6g", "--memory-swap=6g", "--cpus=2",
@@ -292,7 +237,10 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
                         proc.wait()
                     if cancel.is_set():
                         raise RuntimeError("Build cancel kar di gayi.")
-                    raise RuntimeError(f"Category: BUILD TIMEOUT / RUNNER RESOURCES. Build {timeout_seconds // 60} minute se zyada chali; ye source ZIP ke kharab hone ka proof nahi.")
+                    raise RuntimeError(
+                        f"Category: BUILD TIMEOUT / RUNNER RESOURCES. Build "
+                        f"{timeout_seconds // 60} minute se zyada chali; ye source ZIP ke kharab hone ka proof nahi."
+                    )
                 if job is not None:
                     try:
                         log_text = log_path.read_text(encoding="utf-8", errors="replace")
@@ -313,15 +261,23 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
             if proc.returncode:
                 raise RuntimeError(diagnose_build_failure(log_path.read_text(errors="replace"), proc.returncode))
     except FileNotFoundError as e:
-        raise RuntimeError("Category: BOT / RUNNER CONFIGURATION. Docker executable runner par nahi mila. GitHub Actions workflow aur Docker setup check karein.") from e
+        raise RuntimeError(
+            "Category: BOT / RUNNER CONFIGURATION. Docker executable runner par nahi mila. "
+            "GitHub Actions workflow aur Docker setup check karein."
+        ) from e
     if engine == "flutter":
         apks = list((root / "build" / "app" / "outputs" / "flutter-apk").glob("*.apk"))
-    elif engine in ("react-native", "capacitor", "expo", "cordova"):
-        apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     else:
-        apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
+        apks = [
+            p for p in root.rglob("*.apk")
+            if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts
+            and p.is_file()
+        ]
     if not apks:
-        raise RuntimeError("Category: BUILD OUTPUT / BOT CONFIGURATION. Build command successful dikhi, lekin expected debug APK nahi mili. Output path aur build logs check karein.")
+        raise RuntimeError(
+            "Category: BUILD OUTPUT / BOT CONFIGURATION. Build command successful dikhi, lekin expected debug APK nahi mili. "
+            "Output path aur build logs check karein."
+        )
     apk = max(apks, key=lambda p: p.stat().st_mtime)
     if not apk.is_file() or apk.stat().st_size <= 0:
         raise RuntimeError("Category: ARTIFACT VERIFICATION. APK output empty ya missing hai.")
