@@ -343,11 +343,11 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
     return apk
 
 HELP_TEXT = (
-    "📦 Universal APK Build Bot\\n\\n"
-    "Complete supported project ZIP bhejein ya public HTTPS direct-download link paste karein.\\n"
+    "📦 Universal APK Build Bot\n\n"
+    "Complete supported project ZIP bhejein ya public HTTPS direct-download link paste karein.\n"
     "Supported build paths: Native Android/Gradle, Flutter, React Native, Expo, "
-    "Ionic/Capacitor, Cordova, aur special Telegram Android source build.\\n\\n"
-    "Commands: /help /status /cancel /frameworks /limits /about\\n"
+    "Ionic/Capacitor, Cordova, aur special Telegram Android source build.\n\n"
+    "Commands: /help /status /cancel /frameworks /limits /about\n"
     "Note: project ko compatible SDKs, dependencies aur required credentials phir bhi chahiye ho sakte hain."
 )
 
@@ -378,9 +378,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     detail = job.get("detail", "")
     message = "Build status: " + job.get("status", "Working…")
     if progress is not None:
-        message += f"\\nEstimated progress: {progress}%"
+        message += f"\nEstimated progress: {progress}%"
     if detail:
-        message += "\\nCurrent stage: " + str(detail)[:180]
+        message += "\nCurrent stage: " + str(detail)[:180]
     await update.message.reply_text(message, reply_markup=keyboard())
 
 
@@ -402,14 +402,14 @@ async def frameworks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
     await update.message.reply_text(
-        "Supported build paths:\\n"
-        "• Native Android Java/Kotlin + Gradle\\n"
-        "• Flutter\\n"
-        "• React Native\\n"
-        "• Expo (native prebuild)\\n"
-        "• Ionic / Capacitor\\n"
-        "• Apache Cordova\\n"
-        "• Official Telegram Android source (special build)\\n\\n"
+        "Supported build paths:\n"
+        "• Native Android Java/Kotlin + Gradle\n"
+        "• Flutter\n"
+        "• React Native\n"
+        "• Expo (native prebuild)\n"
+        "• Ionic / Capacitor\n"
+        "• Apache Cordova\n"
+        "• Official Telegram Android source (special build)\n\n"
         "C/C++ NDK modules are supported when integrated into a compatible Gradle Android project. "
         "Standalone Unity, Godot, .NET MAUI, Kivy/Buildozer and arbitrary website ZIPs are not yet guaranteed."
     )
@@ -420,12 +420,12 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
     await update.message.reply_text(
-        "Current configured limits:\\n"
-        f"• Source ZIP: {MAX_ZIP_BYTES // (1024 * 1024)} MB\\n"
-        f"• Extracted source: {MAX_UNZIPPED_BYTES // (1024 * 1024)} MB\\n"
-        f"• ZIP entries: {MAX_ZIP_FILES:,}\\n"
-        f"• APK output: {MAX_APK_BYTES // (1024 * 1024)} MB\\n"
-        f"• Normal build timeout: {BUILD_TIMEOUT_SECONDS // 60} minutes\\n"
+        "Current configured limits:\n"
+        f"• Source ZIP: {MAX_ZIP_BYTES // (1024 * 1024)} MB\n"
+        f"• Extracted source: {MAX_UNZIPPED_BYTES // (1024 * 1024)} MB\n"
+        f"• ZIP entries: {MAX_ZIP_FILES:,}\n"
+        f"• APK output: {MAX_APK_BYTES // (1024 * 1024)} MB\n"
+        f"• Normal build timeout: {BUILD_TIMEOUT_SECONDS // 60} minutes\n"
         "Actual limits also depend on Telegram API, GitHub runner resources, network and disk space."
     )
 
@@ -435,9 +435,9 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
         return
     await update.message.reply_text(
-        "Universal APK Build Bot\\n"
+        "Universal APK Build Bot\n"
         "Framework-aware project inspection, isolated Docker builds, diagnostic log summaries, "
-        "APK archive verification and SHA-256 reporting.\\n"
+        "APK archive verification and SHA-256 reporting.\n"
         "Build success depends on project completeness, toolchain compatibility, dependencies and available resources."
     )
 
@@ -469,7 +469,10 @@ async def receive_zip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text("Kripya .zip file bhejein."); return
     if doc.file_size and doc.file_size > TELEGRAM_HOSTED_DOWNLOAD_LIMIT:
-        await update.message.reply_text("Category: SOURCE ZIP SIZE. ZIP 200 MB limit se badi hai. ZIP ko 200 MB ya usse chhota karein, ya project ka public HTTPS direct-download link bhejein (max 200 MB)."); return
+        await update.message.reply_text(
+            f"Category: SOURCE ZIP SIZE. ZIP {TELEGRAM_HOSTED_DOWNLOAD_LIMIT // (1024 * 1024)} MB upload limit se badi hai. "
+            f"ZIP ko limit se chhota karein ya public HTTPS direct-download link bhejein (max {MAX_ZIP_BYTES // (1024 * 1024)} MB)."
+        ); return
     job = {"status": "ZIP download ho rahi hai…", "cancel": threading.Event()}
     JOBS[uid] = job
     await update.message.reply_text("ZIP mil gayi. Build shuru kar raha hoon…", reply_markup=keyboard())
@@ -577,9 +580,9 @@ async def run_build(update, context, doc, job, direct_url=None):
                     document=f,
                     filename=apk.name,
                     caption=(
-                        "✅ Debug APK ready hai.\\n"
-                        f"Framework: {project_name}\\n"
-                        f"Size: {size_mb:.2f} MB\\n"
+                        "✅ Debug APK ready hai.\n"
+                        f"Framework: {project_name}\n"
+                        f"Size: {size_mb:.2f} MB\n"
                         f"SHA-256: {digest.hexdigest()}"
                     ),
                 )
