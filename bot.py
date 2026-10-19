@@ -156,11 +156,15 @@ def detect_project(folder: Path):
         if (root / "lib" / "main.dart").is_file():
             return root, "flutter", "Flutter"
     candidates = [folder] + [p.parent for p in folder.rglob("gradlew") if p.is_file()]
+    seen_roots = set()
     for root in candidates:
-        if ((root / "gradlew").is_file()
-            and ((root / "settings.gradle").is_file() or (root / "settings.gradle.kts").is_file())
-            and ((root / "app/build.gradle").is_file() or (root / "app/build.gradle.kts").is_file())):
-            return root, "gradle", "Native Android (Gradle)"
+        if root in seen_roots:
+            continue
+        seen_roots.add(root)
+        has_settings = (root / "settings.gradle").is_file() or (root / "settings.gradle.kts").is_file()
+        has_build_script = any((root / name).is_file() for name in ("build.gradle", "build.gradle.kts", "app/build.gradle", "app/build.gradle.kts"))
+        if (root / "gradlew").is_file() and has_settings and has_build_script:
+            return root, "gradle", "Native Android / Multi-module Gradle"
     for package_file in folder.rglob("package.json"):
         root = package_file.parent
         try:
@@ -169,6 +173,11 @@ def detect_project(folder: Path):
         except Exception:
             continue
         deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
+        # Expo includes React Native, so detect it first.
+        if "expo" in deps:
+            return root, "expo", "Expo (React Native)"
+        if "cordova" in deps or (root / "config.xml").is_file():
+            return root, "cordova", "Apache Cordova"
         if "react-native" in deps:
             if not (root / "android" / "gradlew").is_file():
                 raise ValueError("Category: PROJECT STRUCTURE. React Native project mila, lekin android/gradlew missing hai. Android platform files ke saath project export karein.")
@@ -206,18 +215,33 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         shell_command = "set -e; flutter --version; flutter pub get; flutter build apk --debug"
     else:
         image = DOCKER_IMAGE
-        if engine in ("react-native", "capacitor"):
+        if engine in ("react-native", "capacitor", "expo", "cordova"):
             if engine == "react-native":
                 setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
                          "mkdir -p android/app/src/main/assets; ENTRY=index.js; [ -f index.js ] || ENTRY=index.android.js; "
                          "npx react-native bundle --platform android --dev false --entry-file \"$ENTRY\" "
                          "--bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res")
-            else:
+                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                                 + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
+            elif engine == "capacitor":
                 setup = ("if [ ! -d node_modules ]; then if [ -f package-lock.json ]; then npm ci; else npm install; fi; fi; "
                          "if node -e \"process.exit(require('./package.json').scripts?.build ? 0 : 1)\"; then npm run build; fi; npx cap sync android")
-            shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
-                             "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
-                             + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
+                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                                 + setup + "; cd android; bash ./gradlew --no-daemon assembleDebug")
+            elif engine == "expo":
+                setup = ("if [ -f package-lock.json ]; then npm ci; else npm install; fi; "
+                         "npx expo prebuild --platform android --no-install; cd android; bash ./gradlew --no-daemon assembleDebug")
+                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                                 + setup)
+            else:
+                setup = ("if [ -f package-lock.json ]; then npm ci; else npm install; fi; "
+                         "npx --yes cordova platform add android; npx --yes cordova build android")
+                shell_command = ("set -e; trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; "
+                                 "if ! command -v npm >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm; fi; "
+                                 + setup)
         else:
             shell_command = (
                 "trap 'chmod -R a+rwX /work 2>/dev/null || true' EXIT; set -e; "
@@ -260,8 +284,8 @@ def build_apk(root: Path, engine: str, cancel: threading.Event):
         raise RuntimeError("Category: BOT / RUNNER CONFIGURATION. Docker executable runner par nahi mila. GitHub Actions workflow aur Docker setup check karein.") from e
     if engine == "flutter":
         apks = list((root / "build" / "app" / "outputs" / "flutter-apk").glob("*.apk"))
-    elif engine in ("react-native", "capacitor"):
-        apks = [p for p in (root / "android").rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
+    elif engine in ("react-native", "capacitor", "expo", "cordova"):
+        apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     else:
         apks = [p for p in root.rglob("*.apk") if "outputs" in p.parts and "apk" in p.parts and "debug" in p.parts]
     if not apks:
