@@ -70,7 +70,7 @@ for catalog in Path("/work").rglob("libs.versions.toml"):
         if not in_versions or not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, raw = (part.strip() for part in stripped.split("=", 1))
-        value_match = re.match(r"""["']?([0-9]+(?:\.[0-9A-Za-z_-]+)*)""", raw)
+        value_match = re.match(r"[\"']?([0-9]+(?:\.[0-9A-Za-z_-]+)*)", raw)
         if not value_match:
             continue
         value = value_match.group(1)
