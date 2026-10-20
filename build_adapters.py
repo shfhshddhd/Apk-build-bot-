@@ -115,8 +115,30 @@ run_gradle_debug() {
   export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
   local common_args=(--no-daemon --max-workers=2 --stacktrace --console=plain)
   local task_file selected_task
+  # Retry only recognizable transient repository/network failures, once.
+  # Never retry compilation, configuration, manifest, or source-code failures.
+  run_gradle_with_network_retry() {
+    local output_file="$1"
+    shift
+    local attempt=1 rc
+    while :; do
+      "${gradle_cmd[@]}" "${common_args[@]}" "$@" >"$output_file" 2>&1
+      rc=$?
+      if [ "$rc" -eq 0 ]; then
+        return 0
+      fi
+      if [ "$attempt" -ge 2 ] || ! grep -Eiq \
+        'UnknownHostException|Could not resolve host|Connection timed out|Read timed out|Temporary failure in name resolution|502 Bad Gateway|503 Service Unavailable|504 Gateway Time-out|429 Too Many Requests|Connection reset|Could not GET .* (502|503|504)|Received status code 5[0-9][0-9]' \
+        "$output_file"; then
+        return "$rc"
+      fi
+      echo "Transient dependency/network failure detected; retrying Gradle once (attempt 2/2)." >&2
+      sleep 3
+      attempt=$((attempt + 1))
+    done
+  }
   task_file=$(mktemp)
-  if "${gradle_cmd[@]}" "${common_args[@]}" tasks --all >"$task_file" 2>&1; then
+  if run_gradle_with_network_retry "$task_file" tasks --all; then
     selected_task=$(python3 - "$task_file" <<'PY'
 import re, sys
 from pathlib import Path
@@ -150,7 +172,13 @@ PY
     return 2
   fi
   echo "Selected Android debug task: $selected_task"
-  "${gradle_cmd[@]}" "${common_args[@]}" "$selected_task"
+  if ! run_gradle_with_network_retry "$task_file" "$selected_task"; then
+    cat "$task_file"
+    rm -f "$task_file"
+    return 1
+  fi
+  cat "$task_file"
+  rm -f "$task_file"
 }
 """
 
