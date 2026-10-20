@@ -32,7 +32,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Compile Python modules
-        run: python -m py_compile bot.py project_inspector.py build_adapters.py build_preflight.py build_history.py
+        run: python -m py_compile bot.py project_inspector.py build_adapters.py build_preflight.py build_history.py build_report.py
 
       - name: Run project-inspection regression tests
         run: python -m unittest discover -s tests -v
