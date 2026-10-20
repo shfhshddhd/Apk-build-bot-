@@ -1,0 +1,106 @@
+name: Android APK Integration Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-minimal-debug-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Create minimal native Android fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/apk-smoke/app/src/main/java/com/example/smoke"
+          cd "$RUNNER_TEMP/apk-smoke"
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = 'ApkSmoke'
+          include ':app'
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.example.smoke'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.example.smoke'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="APK Smoke Test" android:theme="@android:style/Theme.Material.Light">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          cat > app/src/main/java/com/example/smoke/MainActivity.java <<'EOF'
+          package com.example.smoke;
+          public final class MainActivity extends android.app.Activity {
+              @Override public void onCreate(android.os.Bundle state) {
+                  super.onCreate(state);
+                  android.widget.TextView text = new android.widget.TextView(this);
+                  text.setText("APK integration smoke test passed");
+                  setContentView(text);
+              }
+          }
+          EOF
+
+      - name: Pull production Android builder image
+        run: docker pull ghcr.io/cirruslabs/android-sdk:35
+
+      - name: Build a real debug APK inside the builder container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --memory=6g --memory-swap=6g --cpus=2 \
+            -v "$RUNNER_TEMP/apk-smoke:/work" -w /work \
+            ghcr.io/cirruslabs/android-sdk:35 bash -lc '
+              set -euo pipefail
+              java -version
+              yes | sdkmanager --licenses >/dev/null 2>&1 || true
+              sdkmanager "platforms;android-35" "build-tools;35.0.0"
+              curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle.zip
+              unzip -q /tmp/gradle.zip -d /tmp
+              /tmp/gradle-8.9/bin/gradle --no-daemon --max-workers=2 assembleDebug
+              test -s app/build/outputs/apk/debug/app-debug.apk
+              python3 -c "import zipfile; p=\"app/build/outputs/apk/debug/app-debug.apk\"; z=zipfile.ZipFile(p); assert z.testzip() is None; assert \"AndroidManifest.xml\" in z.namelist(); print(\"APK archive integrity verified\")"
+              sha256sum app/build/outputs/apk/debug/app-debug.apk
+              ls -lh app/build/outputs/apk/debug/app-debug.apk
+            '
+
+      - name: Upload smoke-test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-smoke-apk
+          path: ${"$"}{{ runner.temp }}/apk-smoke/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 3
