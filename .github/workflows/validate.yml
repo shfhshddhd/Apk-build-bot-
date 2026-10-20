@@ -32,7 +32,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Compile Python modules
-        run: python -m py_compile bot.py project_inspector.py build_adapters.py
+        run: python -m py_compile bot.py project_inspector.py build_adapters.py build_preflight.py build_history.py
 
       - name: Run project-inspection regression tests
         run: python -m unittest discover -s tests -v
@@ -44,6 +44,8 @@ jobs:
           bot = Path("bot.py").read_text(encoding="utf-8")
           inspector = Path("project_inspector.py").read_text(encoding="utf-8")
           adapters = Path("build_adapters.py").read_text(encoding="utf-8")
+          preflight = Path("build_preflight.py").read_text(encoding="utf-8")
+          history = Path("build_history.py").read_text(encoding="utf-8")
           required_bot = [
               "MAX_ZIP_BYTES = int(os.environ.get",
               "MAX_UNZIPPED_BYTES = int(os.environ.get",
@@ -67,6 +69,13 @@ jobs:
               "MAX_INSPECTED_FILES",
           ]
           missing = [f"bot.py: {x}" for x in required_bot if x not in bot]
+          required_features = [
+              "inspect_project(root, engine)", "record_build", "recent_builds",
+              "CommandHandler(\"history\", history_command)",
+          ]
+          missing += [f"bot.py feature: {x}" for x in required_features if x not in bot]
+          missing += [f"build_preflight.py: {x}" for x in ("def inspect_project(", "def format_findings(") if x not in preflight]
+          missing += [f"build_history.py: {x}" for x in ("CREATE TABLE IF NOT EXISTS builds", "def recent_builds(") if x not in history]
           missing += [f"project_inspector.py: {x}" for x in required_inspector if x not in inspector]
           required_adapters = [
               "def build_command_for(",
