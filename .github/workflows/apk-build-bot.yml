@@ -27,6 +27,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Cloudflare Tunnel for large-APK fallback
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
       - name: Validate bot Python syntax
         run: python -m py_compile bot.py
 
