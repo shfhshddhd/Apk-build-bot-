@@ -77,10 +77,10 @@ restore_gradle_wrapper() {
 from pathlib import Path
 import re
 text = Path("gradle/wrapper/gradle-wrapper.properties").read_text(encoding="utf-8", errors="ignore")
-match = re.search(r"gradle-([0-9][A-Za-z0-9.+-]*)-(?:bin|all)\\.zip", text)
+match = re.search(r"gradle-([0-9][A-Za-z0-9.+-]*)-(?:bin|all)\.zip", text)
 if not match: raise SystemExit("Could not determine Gradle version from distributionUrl.")
 version = match.group(1)
-if re.fullmatch(r"\\d+\\.\\d+", version):
+if re.fullmatch(r"\d+\.\d+", version):
     version += ".0"
 print(version)
 PY
