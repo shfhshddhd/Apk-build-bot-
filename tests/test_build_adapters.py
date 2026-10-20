@@ -12,6 +12,8 @@ class BuildAdapterTests(unittest.TestCase):
         self.assertIn("run_gradle_debug", command)
         self.assertIn("Selected Android debug task", command)
         self.assertIn("gradle-wrapper.properties", command)
+        self.assertIn("Gradle launcher missing", command)
+        self.assertIn("wrapper launcher could not be restored", command)
         self.assertIn("gradle-([0-9]", command)
 
     def test_missing_wrapper_uses_declared_distribution_version(self):
