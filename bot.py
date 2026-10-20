@@ -26,6 +26,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from project_inspector import detect_project
 from build_preflight import inspect_project, format_findings
 from build_history import record_build, recent_builds
+from build_report import redact_sensitive_text
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
@@ -308,12 +309,12 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
                         if task_lines:
                             job["detail"] = task_lines[-1][:100]
                         elif lines:
-                            job["detail"] = lines[-1][:100]
+                            job["detail"] = redact_sensitive_text(lines[-1], 100)
                     except OSError:
                         pass
                 time.sleep(2)
             if proc.returncode:
-                raise RuntimeError(diagnose_build_failure(log_path.read_text(errors="replace"), proc.returncode))
+                raise RuntimeError(diagnose_build_failure(redact_sensitive_text(log_path.read_text(errors="replace")), proc.returncode))
     except FileNotFoundError as e:
         raise RuntimeError(
             "Category: BOT / RUNNER CONFIGURATION. Docker executable runner par nahi mila. "
