@@ -56,6 +56,18 @@ PY
 }
 
 restore_gradle_wrapper() {
+  # A ZIP often omits the gradlew launcher while retaining the wrapper properties.
+  # Recreate the launcher and wrapper JAR using the project's declared Gradle version.
+  if [ ! -f ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+    echo 'Gradle launcher missing; attempting to restore it from wrapper properties.'
+    mkdir -p gradle/wrapper
+    if ! curl --fail --silent --show-error --location --max-time 45 \
+      "https://raw.githubusercontent.com/gradle/gradle/master/gradlew" --output ./gradlew; then
+      echo 'Gradle launcher download failed.'
+      return 2
+    fi
+    chmod +x ./gradlew
+  fi
   if [ -f ./gradlew ] && [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
     [ -s gradle/wrapper/gradle-wrapper.properties ] || {
       echo 'Gradle wrapper is incomplete: gradle-wrapper.properties is missing.'
@@ -65,18 +77,15 @@ restore_gradle_wrapper() {
 from pathlib import Path
 import re
 text = Path("gradle/wrapper/gradle-wrapper.properties").read_text(encoding="utf-8", errors="ignore")
-match = re.search(r"gradle-([0-9][A-Za-z0-9.+-]*)-(?:bin|all)\.zip", text)
+match = re.search(r"gradle-([0-9][A-Za-z0-9.+-]*)-(?:bin|all)\\.zip", text)
 if not match: raise SystemExit("Could not determine Gradle version from distributionUrl.")
 version = match.group(1)
-# Release tags use a patch component (e.g. v8.7.0), but distributionUrl may say 8.7.
-if re.fullmatch(r"\d+\.\d+", version):
+if re.fullmatch(r"\\d+\\.\\d+", version):
     version += ".0"
 print(version)
 PY
 ) || return 2
     echo "Restoring wrapper JAR for declared Gradle $VERSION"
-    mkdir -p gradle/wrapper
-    rm -f gradle/wrapper/gradle-wrapper.jar
     if ! curl --fail --silent --show-error --location --max-time 45 \
       "https://raw.githubusercontent.com/gradle/gradle/v${VERSION}/gradle/wrapper/gradle-wrapper.jar" \
       --output gradle/wrapper/gradle-wrapper.jar; then
@@ -88,16 +97,19 @@ PY
   fi
   [ ! -f ./gradlew ] || chmod +x ./gradlew || true
 }
-
 run_gradle_debug() {
   local gradle_cmd=()
   if [ -f ./gradlew ]; then
     restore_gradle_wrapper || return $?
     gradle_cmd=(bash ./gradlew)
+  elif [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+    restore_gradle_wrapper || return $?
+    [ -f ./gradlew ] || { echo 'Gradle wrapper launcher could not be restored.'; return 2; }
+    gradle_cmd=(bash ./gradlew)
   elif command -v gradle >/dev/null 2>&1; then
     gradle_cmd=(gradle)
   else
-    echo 'No Gradle wrapper or system Gradle is available for this project.'
+    echo 'No Gradle wrapper, wrapper properties, or system Gradle is available. Add gradlew plus gradle/wrapper/gradle-wrapper.properties, or provide a Gradle version.'
     return 2
   fi
   export GRADLE_OPTS="${GRADLE_OPTS:--Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8}"
