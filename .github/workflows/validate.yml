@@ -70,7 +70,7 @@ jobs:
           ]
           missing = [f"bot.py: {x}" for x in required_bot if x not in bot]
           required_features = [
-              "inspect_project(root, engine)", "record_build", "recent_builds",
+              "inspect_project", "record_build", "recent_builds",
               "CommandHandler(\"history\", history_command)",
           ]
           missing += [f"bot.py feature: {x}" for x in required_features if x not in bot]
