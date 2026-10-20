@@ -192,7 +192,26 @@ def clone_telegram_source(destination: Path, branch: str):
 
 def diagnose_build_failure(log_text: str, returncode: int) -> str:
     low = log_text.lower()
-    tail = log_text[-4500:].strip() or "(Build log khaali hai.)"
+    lines = log_text.splitlines()
+    markers = ("* what went wrong:", "execution failed for task", "failure:",
+               "caused by:", "error:", "could not resolve", "could not find",
+               "manifest merger failed", "resource linking failed",
+               "outofmemoryerror", "no space left on device", "unresolved reference",
+               "cannot find symbol")
+    important = []
+    seen = set()
+    for i, line in enumerate(lines):
+        if any(marker in line.lower() for marker in markers):
+            for j in range(max(0, i - 1), min(len(lines), i + 4)):
+                item = lines[j].strip()
+                if item and item not in seen:
+                    seen.add(item)
+                    important.append(item)
+            if len(important) >= 45:
+                break
+    diagnostic = "\n".join(important)[-3200:] or "(Log mein recognizable error marker nahi mila.)"
+    tail = log_text[-1800:].strip() or "(Build log khaali hai.)"
+    excerpt = "Important error lines:\n" + diagnostic + "\n\nFinal log tail:\n" + tail
     rules = [
         (("aapt2", "daemon startup failed", "failed to start daemon"), "BUILD ENVIRONMENT / ANDROID TOOLCHAIN", "Android build tool ya AAPT2 daemon start nahi hua. SDK/toolchain, permissions ya runner resources issue ho sakta hai; source ZIP ko bina proof dosh nahi diya ja sakta."),
         (("permission denied", "operation not permitted", "read-only file system", "accessdeniedexception"), "BUILD ENVIRONMENT / FILE PERMISSIONS", "Build process ko file/folder access nahi mila. Permissions ya container filesystem check karein."),
@@ -212,8 +231,8 @@ def diagnose_build_failure(log_text: str, returncode: int) -> str:
     ]
     for needles, category, reason in rules:
         if any(n in low for n in needles):
-            return f"Category: {category}\nAssessment: {reason}\n\nBuild log ka aakhri hissa:\n{tail}"
-    return f"Category: BUILD FAILED — ROOT CAUSE NEEDS LOG REVIEW\nAssessment: Build command exit code {returncode} ke saath fail hui. Available log se source ZIP aur builder ki galti ko certainty se alag nahi kiya ja saka. Neeche raw log hai.\n\nBuild log ka aakhri hissa:\n{tail}"
+            return f"Category: {category}\nAssessment: {reason}\n\n{excerpt}"
+    return f"Category: BUILD FAILED — ROOT CAUSE NEEDS LOG REVIEW\nAssessment: Build command exit code {returncode} ke saath fail hui. Available log se source ZIP aur builder ki galti ko certainty se alag nahi kiya ja saka. Neeche raw log hai.\n\n{excerpt}"
 
 
 def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
