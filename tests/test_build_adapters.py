@@ -58,6 +58,13 @@ class BuildAdapterTests(unittest.TestCase):
         self.assertIn("assemble[A-Za-z0-9]*Debug", SDK_PREPARE)
         self.assertIn("No assembleDebug or flavor-specific", SDK_PREPARE)
 
+    def test_gradle_retries_only_transient_network_failures_once(self):
+        self.assertIn("run_gradle_with_network_retry", SDK_PREPARE)
+        self.assertIn("retrying Gradle once (attempt 2/2)", SDK_PREPARE)
+        self.assertIn("Temporary failure in name resolution", SDK_PREPARE)
+        self.assertIn("Received status code 5[0-9][0-9]", SDK_PREPARE)
+        self.assertIn('"$attempt" -ge 2', SDK_PREPARE)
+
     def test_unknown_adapter_is_rejected(self):
         with self.assertRaises(ValueError):
             build_command_for("unknown", "android:test", "flutter:test")
