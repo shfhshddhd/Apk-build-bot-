@@ -75,11 +75,11 @@ Run validation from GitHub Actions → **Validate APK Build Bot** → **Run work
 
 The bot currently keeps active job status in memory; completed-build history and persistent log retrieval are not implemented.
 
-## Error reporting
+## Error reporting and recovery expectations
 
-The bot categorizes common failures such as invalid ZIPs, unsupported project structure, SDK/toolchain failures, permissions, dependency/network errors, source compilation errors, resource/manifest errors, timeout/resource exhaustion, and missing APK output. When logs do not prove a single cause, the bot says that the root cause needs log review and includes the log tail instead of making a false claim.
+The bot categorizes common failures such as invalid ZIPs, unsupported project structure, SDK/toolchain failures, permissions, dependency/network errors, source compilation errors, resource/manifest errors, timeout/resource exhaustion, and missing APK output. Failure reports now extract lines around Gradle's `What went wrong`, `Execution failed for task`, `Caused by`, and common compiler/resource errors in addition to the final log tail, so the actionable cause is less likely to be hidden by a long stack trace.
 
-A classifier is a diagnostic aid, not an infallible root-cause oracle. Some build errors have overlapping causes, so check the included log when the category is uncertain.
+The bot prepares known toolchains and runs framework-specific build commands, but it does not blindly rewrite arbitrary application code or repeatedly retry every failure. Automatic code edits can break app behavior or hide security problems. A build may still require source-specific changes, private credentials, proprietary SDKs/licenses, unsupported native modules, or external cloud build services. A classifier is a diagnostic aid, not an infallible root-cause oracle; inspect the highlighted lines when the category is uncertain.
 
 ## Security
 
