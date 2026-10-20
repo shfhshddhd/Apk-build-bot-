@@ -1,4 +1,5 @@
 import asyncio
+import http.server
 import logging
 import os
 import ipaddress
@@ -327,6 +328,95 @@ def build_apk(root: Path, engine: str, cancel: threading.Event, job=None):
         raise RuntimeError("Category: ARTIFACT VERIFICATION. Output file valid APK/ZIP archive nahi hai.") from exc
     return apk
 
+
+DOWNLOAD_LINK_TTL_SECONDS = max(300, int(os.environ.get("DOWNLOAD_LINK_TTL_SECONDS", "3600")))
+
+
+def start_temporary_download_link(apk: Path):
+    """Expose one APK through a random, expiring Cloudflare quick-tunnel URL."""
+    cloudflared = shutil.which("cloudflared")
+    if not cloudflared:
+        raise RuntimeError("Cloudflare Tunnel executable missing hai; workflow install step check karein.")
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    download_dir = Path(tempfile.mkdtemp(prefix="apk_download_"))
+    saved_apk = download_dir / apk.name
+    shutil.copy2(apk, saved_apk)
+    expires_at = time.time() + DOWNLOAD_LINK_TTL_SECONDS
+
+    class DownloadHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if time.time() > expires_at or self.path != "/" + token + "/" + urllib.parse.quote(saved_apk.name):
+                self.send_error(404)
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.android.package-archive")
+                self.send_header("Content-Length", str(saved_apk.stat().st_size))
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(saved_apk.name))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                with saved_apk.open("rb") as source:
+                    shutil.copyfileobj(source, self.wfile)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def log_message(self, fmt, *args):
+            log.info("Temporary APK download server: " + fmt, *args)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), DownloadHandler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    tunnel_log = download_dir / "cloudflared.log"
+    tunnel_output = tunnel_log.open("w", encoding="utf-8")
+    process = subprocess.Popen(
+        [cloudflared, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{server.server_port}"],
+        stdout=tunnel_output, stderr=subprocess.STDOUT, text=True,
+    )
+    public_url = None
+    try:
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            try:
+                log_text = tunnel_log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                log_text = ""
+            match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", log_text)
+            if match:
+                public_url = match.group(0)
+                break
+            time.sleep(0.5)
+        if not public_url:
+            details = tunnel_log.read_text(encoding="utf-8", errors="replace")[-800:]
+            raise RuntimeError("Temporary public download tunnel start nahi hua. " + details)
+        link = public_url.rstrip("/") + "/" + token + "/" + urllib.parse.quote(saved_apk.name)
+    except Exception:
+        process.terminate()
+        server.shutdown()
+        tunnel_output.close()
+        shutil.rmtree(download_dir, ignore_errors=True)
+        raise
+
+    def cleanup():
+        time.sleep(DOWNLOAD_LINK_TTL_SECONDS)
+        try:
+            process.terminate()
+            process.wait(timeout=10)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+        server.shutdown()
+        server.server_close()
+        tunnel_output.close()
+        shutil.rmtree(download_dir, ignore_errors=True)
+
+    threading.Thread(target=cleanup, daemon=True).start()
+    return link, DOWNLOAD_LINK_TTL_SECONDS
+
+
 HELP_TEXT = (
     "📦 Universal APK Build Bot\n\n"
     "Complete supported project ZIP bhejein ya public HTTPS direct-download link paste karein.\n"
@@ -572,17 +662,32 @@ async def run_build(update, context, doc, job, direct_url=None):
                 for chunk in iter(lambda: artifact_file.read(1024 * 1024), b""):
                     digest.update(chunk)
             size_mb = apk.stat().st_size / (1024 * 1024)
-            with apk.open("rb") as f:
-                await context.bot.send_document(
+            caption = (
+                "✅ Debug APK ready hai.\n"
+                f"Framework: {project_name}\n"
+                f"Size: {size_mb:.2f} MB\n"
+                f"SHA-256: {digest.hexdigest()}"
+            )
+            try:
+                with apk.open("rb") as f:
+                    await context.bot.send_document(
+                        chat_id=chat_id, document=f, filename=apk.name, caption=caption,
+                    )
+            except TelegramError as upload_error:
+                if "413" not in str(upload_error) and "request entity too large" not in str(upload_error).lower():
+                    raise
+                job["status"] = "Badi APK ke liye temporary download link ban raha hai…"
+                link, ttl = await asyncio.to_thread(start_temporary_download_link, apk)
+                await context.bot.send_message(
                     chat_id=chat_id,
-                    document=f,
-                    filename=apk.name,
-                    caption=(
-                        "✅ Debug APK ready hai.\n"
-                        f"Framework: {project_name}\n"
-                        f"Size: {size_mb:.2f} MB\n"
-                        f"SHA-256: {digest.hexdigest()}"
+                    text=(
+                        "✅ APK build successful hai, lekin Telegram upload size limit ki wajah se file attach nahi ho saki.\n"
+                        f"Framework: {project_name}\nSize: {size_mb:.2f} MB\n"
+                        f"SHA-256: {digest.hexdigest()}\n\n"
+                        f"⬇️ Temporary APK download link (lagbhag {ttl // 60} minute valid):\n{link}\n\n"
+                        "Link random secret path ke saath hai; ise sirf trusted jagah share karein."
                     ),
+                    disable_web_page_preview=True,
                 )
     except zipfile.BadZipFile:
         await safe_send(context.bot, chat_id, "Category: UPLOADED ZIP FILE. File valid ZIP archive nahi hai ya corrupt hai. Project ko dobara ZIP karke bhejein.", reply_markup=keyboard())
