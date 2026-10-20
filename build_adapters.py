@@ -50,6 +50,37 @@ if cmake_present:
         packages.add("cmake;3.22.1")
         if not re.search(r"\bndkVersion\s*(?:=\s*)?['\"]", all_gradle):
             packages.add("ndk;27.2.12479018")
+# Version catalogs commonly keep Android SDK values outside build.gradle.
+# Read only the project's own catalog; do not guess a newer SDK if one is declared.
+for catalog in Path("/work").rglob("libs.versions.toml"):
+    if any(part in ignored for part in catalog.parts):
+        continue
+    try:
+        catalog_text = catalog.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        continue
+    # Accept common aliases such as compileSdk = "35", androidCompileSdk = 35,
+    # buildTools = "35.0.0", and ndk = "27.2.12479018" in [versions].
+    in_versions = False
+    for line in catalog_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_versions = stripped == "[versions]"
+            continue
+        if not in_versions or not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, raw = (part.strip() for part in stripped.split("=", 1))
+        value_match = re.match(r'["\\']?([0-9]+(?:\\.[0-9A-Za-z_-]+)*)', raw)
+        if not value_match:
+            continue
+        value = value_match.group(1)
+        key_lower = key.lower().replace("-", "").replace("_", "")
+        if key_lower in {"compilesdk", "androidcompilesdk", "targetsdk", "androidtargetsdk"} and re.fullmatch(r"\\d{2,3}", value):
+            packages.add(f"platforms;android-{value}")
+        elif key_lower in {"buildtools", "buildtoolsversion", "androidbuildtools"} and re.fullmatch(r"\\d+(?:\\.\\d+){1,2}", value):
+            packages.add(f"build-tools;{value}")
+        elif key_lower in {"ndk", "ndkversion", "androidndkversion"} and re.fullmatch(r"\\d+(?:\\.\\d+){2,3}", value):
+            packages.add(f"ndk;{value}")
 for package in sorted(packages): print(package)
 PY
 )
