@@ -15,6 +15,12 @@ Telegram bot that accepts an application-source ZIP, detects supported Android p
 
 This is not a universal compiler for every framework or arbitrary ZIP. Unity, Godot, .NET MAUI, NativeScript, Kotlin Multiplatform edge cases, and projects requiring proprietary export tooling are not guaranteed to build through these generic paths. A valid source project still needs compatible dependencies, build files, SDK versions, and any private credentials or environment values required by that project. It produces debug APKs; release signing is not configured.
 
+## Preflight, diagnosis, and build history
+
+Before invoking the toolchain, the bot runs non-invasive source checks and reports missing/invalid manifests, missing Gradle wrapper pieces, absent JavaScript lockfiles, and other common setup risks. Findings are advisory: the bot still attempts the build unless the existing project detector rejects the archive. This avoids treating heuristic checks as proof that a project cannot compile.
+
+Build failures are categorized using the available log (source compilation, Android resources, SDK/toolchain, dependency/network, Docker/registry, runner resources, or unknown). A category is a best-effort diagnosis, not a guarantee; inspect the attached error excerpt for confirmation. `/history` shows the latest 10 build records for the current Telegram user. History is bounded by `BUILD_HISTORY_ROWS` (default 500) and stored at `BUILD_HISTORY_DB` (default `data/build_history.sqlite3`). For restart-safe history, the host must preserve that path; ephemeral GitHub Actions runners do not provide permanent storage between runs.
+
 ## Required repository secrets
 
 Go to **Settings → Secrets and variables → Actions → New repository secret**:
@@ -73,7 +79,7 @@ Run validation from GitHub Actions → **Validate APK Build Bot** → **Run work
 - `/limits` — current configured file, extraction, timeout, and APK limits.
 - `/about` — architecture summary and build limitations.
 
-The bot currently keeps active job status in memory; completed-build history and persistent log retrieval are not implemented.
+The bot keeps active job status in memory and stores a bounded SQLite history (`data/build_history.sqlite3` by default). `/history` shows the requesting user's last 10 build records; users cannot see another user's history. Set `BUILD_HISTORY_DB` to a durable writable path if your hosting platform supports persistent storage. The database stores a short status/diagnostic summary, not full build logs or uploaded source ZIPs; full log retrieval is not implemented.
 
 ## Error reporting and recovery expectations
 
