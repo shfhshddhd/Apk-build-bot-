@@ -24,6 +24,8 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from project_inspector import detect_project
+from build_preflight import inspect_project, format_findings
+from build_history import record_build, recent_builds
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_USER_IDS = {int(x.strip()) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()}
@@ -445,7 +447,7 @@ HELP_TEXT = (
     "Complete supported project ZIP bhejein ya public HTTPS direct-download link paste karein.\n"
     "Supported build paths: Native Android/Gradle, Flutter, React Native, Expo, "
     "Ionic/Capacitor, Cordova, aur special Telegram Android source build.\n\n"
-    "Commands: /help /status /cancel /frameworks /limits /about\n"
+    "Commands: /help /status /history /cancel /frameworks /limits /about\n"
     "Note: project ko compatible SDKs, dependencies aur required credentials phir bhi chahiye ho sakte hain."
 )
 
@@ -481,6 +483,30 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "\nCurrent stage: " + str(detail)[:180]
     await update.message.reply_text(message, reply_markup=keyboard())
 
+
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        await update.message.reply_text("Aapko is bot ko use karne ki permission nahi hai.")
+        return
+    try:
+        rows = await asyncio.to_thread(recent_builds, update.effective_user.id, 10)
+    except Exception:
+        log.exception("Could not read build history")
+        await update.message.reply_text("Build history database abhi available nahi hai.")
+        return
+    if not rows:
+        await update.message.reply_text("Abhi tak is user ki koi saved build history nahi hai.")
+        return
+    lines = ["📚 Aapki recent build history (latest 10):"]
+    for item in rows:
+        stamp = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["created_at"]))
+        lines.append(
+            f"#{item['id']} · {stamp}\n"
+            f"{item['project']} ({item['engine']}) — {item['status']}"
+            + (f"\n{item['summary'][:180]}" if item["summary"] else "")
+        )
+    await update.message.reply_text("\n\n".join(lines), reply_markup=keyboard())
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
@@ -612,6 +638,7 @@ async def receive_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def run_build(update, context, doc, job, direct_url=None):
     uid, chat_id = update.effective_user.id, update.effective_chat.id
+    project_name, engine = "Unknown project", "unknown"
     try:
         with tempfile.TemporaryDirectory(prefix="apk_bot_") as td:
             base = Path(td); zip_path = base / "project.zip"; src = base / "source"; src.mkdir()
@@ -634,9 +661,15 @@ async def run_build(update, context, doc, job, direct_url=None):
             else:
                 job["status"] = "Telegram source structure check ho rahi hai…"
             root, engine, project_name = detect_project(src)
+            job["project"], job["engine"] = project_name, engine
             if job["cancel"].is_set(): raise RuntimeError("Build cancel kar di gayi.")
+            findings = await asyncio.to_thread(inspect_project, root, engine)
+            preflight_text = format_findings(findings)
+            await safe_send(
+                context.bot, chat_id,
+                f"Project detect hua: {project_name} ({engine}).\n\n🔎 Preflight report (advisory; build phir bhi try hogi):\n{preflight_text[:2800]}"
+            )
             job["status"] = f"{project_name} project build ho raha hai…"
-            await safe_send(context.bot, chat_id, f"Project detect hua: {project_name}. Required build tools se build kar raha hoon.")
             job["progress"] = 1
             job["detail"] = "Build environment start ho raha hai"
             progress_message = await context.bot.send_message(
@@ -712,20 +745,39 @@ async def run_build(update, context, doc, job, direct_url=None):
                     ),
                     disable_web_page_preview=True,
                 )
+            job["status"] = "Success"
+            job["summary"] = f"APK {size_mb:.2f} MB; SHA-256 {digest.hexdigest()}"
     except zipfile.BadZipFile:
+        job["status"] = "Failed"
+        job["summary"] = "Uploaded file is not a valid ZIP archive."
         await safe_send(context.bot, chat_id, "Category: UPLOADED ZIP FILE. File valid ZIP archive nahi hai ya corrupt hai. Project ko dobara ZIP karke bhejein.", reply_markup=keyboard())
     except (ValueError, RuntimeError) as e:
+        job["status"] = "Cancelled" if "cancel" in str(e).lower() else "Failed"
+        job["summary"] = str(e)[-900:]
         await safe_send(context.bot, chat_id, "APK build nahi hui:\n" + str(e)[-3000:], reply_markup=keyboard())
     except TelegramError as e:
+        job["status"] = "Failed"
+        job["summary"] = "Telegram file transfer: " + str(e)[:800]
         log.exception("Telegram file transfer failed")
         await safe_send(context.bot, chat_id, "Category: TELEGRAM / FILE TRANSFER. File transfer fail hua. Size limit, network ya Telegram API response check karein.\nTechnical error: " + str(e)[:1200], reply_markup=keyboard())
     except OSError as e:
+        job["status"] = "Failed"
+        job["summary"] = "Runner filesystem: " + str(e)[:800]
         log.exception("Filesystem or runner error")
         await safe_send(context.bot, chat_id, "Category: BOT / RUNNER FILESYSTEM. File operation fail hui; ye ZIP ke source-code issue ka proof nahi.\nTechnical error: " + type(e).__name__ + ": " + str(e)[:1200], reply_markup=keyboard())
     except Exception as e:
+        job["status"] = "Failed"
+        job["summary"] = "Internal error: " + type(e).__name__ + ": " + str(e)[:800]
         log.exception("Unexpected build/bot error")
         await safe_send(context.bot, chat_id, "Category: BOT INTERNAL ERROR. Bot ke internal operation mein unexpected exception aayi; isse ZIP ki galti sabit nahi hoti.\nTechnical error: " + type(e).__name__ + ": " + str(e)[:1200] + "\nFull traceback GitHub Actions log mein hai.", reply_markup=keyboard())
     finally:
+        try:
+            await asyncio.to_thread(
+                record_build, uid, job.get("project", project_name), job.get("engine", engine),
+                job.get("status", "Failed"), job.get("summary", "")
+            )
+        except Exception:
+            log.exception("Could not persist build history")
         if JOBS.get(uid) is job: JOBS.pop(uid, None)
 
 async def errors(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -738,6 +790,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("frameworks", frameworks_command))
     app.add_handler(CommandHandler("limits", limits_command))
