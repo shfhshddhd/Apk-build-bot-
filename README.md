@@ -87,6 +87,8 @@ The bot categorizes common failures such as invalid ZIPs, unsupported project st
 
 The bot prepares known toolchains and runs framework-specific build commands, but it does not blindly rewrite arbitrary application code or repeatedly retry every failure. Automatic code edits can break app behavior or hide security problems. A build may still require source-specific changes, private credentials, proprietary SDKs/licenses, unsupported native modules, or external cloud build services. A classifier is a diagnostic aid, not an infallible root-cause oracle; inspect the highlighted lines when the category is uncertain.
 
+Build log excerpts sent to Telegram pass through best-effort credential redaction (common bot/API tokens, authorization headers, secret assignments, and URL query values). Redaction reduces accidental exposure but is not a guarantee; never put secrets in source or build output.
+
 ## Security
 
 Only user IDs in `ALLOWED_USER_IDS` can use the bot. Building a project executes its Gradle/Flutter build scripts. Only build source ZIPs you trust. Docker isolation is helpful but does not make arbitrary untrusted build scripts risk-free.
