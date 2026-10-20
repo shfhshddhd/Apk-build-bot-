@@ -27,6 +27,13 @@ class BuildAdapterTests(unittest.TestCase):
         self.assertIn("ndkVersion", SDK_PREPARE)
         self.assertIn("CMakeLists.txt", SDK_PREPARE)
 
+    def test_sdk_preflight_reads_gradle_version_catalog(self):
+        self.assertIn("libs.versions.toml", SDK_PREPARE)
+        self.assertIn('stripped == "[versions]"', SDK_PREPARE)
+        self.assertIn("androidcompilesdk", SDK_PREPARE)
+        self.assertIn("androidbuildtools", SDK_PREPARE)
+        self.assertIn("androidndkversion", SDK_PREPARE)
+
     def test_flutter_uses_flutter_image(self):
         image, command = build_command_for("flutter", "android:test", "flutter:test")
         self.assertEqual(image, "flutter:test")
